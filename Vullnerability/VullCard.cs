@@ -21,10 +21,11 @@ namespace Vullnerability
                           ?? _vuln.PublicationDate?.ToString("dd.MM.yyyy") ?? "—";
             lblDiscoveryDate.Text = dateStr;
 
-            // Цвет по критичности — берём максимальный из CVSS-оценок (decimal в новой схеме).
+            // берём максимальную из CVSS-оценок и красим карточку по ней
             decimal? score = _vuln.Cvss4_0_Score ?? _vuln.Cvss3_0_Score ?? _vuln.Cvss2_0_Score;
             UpdateSeverityColor(score);
 
+            // клик по любому контролу внутри = клик по карточке
             this.Click += VullCard_Click;
             foreach (Control c in this.Controls)
                 c.Click += VullCard_Click;
@@ -35,9 +36,9 @@ namespace Vullnerability
             if (!score.HasValue) return;
 
             Color backColor;
-            if (score >= 9.0m) backColor = Color.FromArgb(255, 100, 100); // Критическая
-            else if (score >= 7.0m) backColor = Color.FromArgb(255, 200, 100); // Высокая
-            else if (score >= 4.0m) backColor = Color.FromArgb(255, 255, 150); // Средняя
+            if (score >= 9.0m) backColor = Color.FromArgb(255, 100, 100);
+            else if (score >= 7.0m) backColor = Color.FromArgb(255, 200, 100);
+            else if (score >= 4.0m) backColor = Color.FromArgb(255, 255, 150);
             else backColor = Color.White;
 
             this.BackColor = backColor;

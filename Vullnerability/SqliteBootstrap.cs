@@ -6,52 +6,26 @@ using System.Text;
 
 namespace Vullnerability.db
 {
-    /// <summary>
-    /// Создаёт файл-БД SQLite при первом запуске приложения и накатывает на него
-    /// схему из <c>01_schema.sqlite.sql</c>.
-    /// 
-    /// Должно вызываться ДО любого использования <see cref="VulnDbContext"/> —
-    /// как правило, в <c>Program.Main()</c> перед <c>Application.Run(...)</c>.
-    /// 
-    /// Файл БД хранится по пути <c>%LOCALAPPDATA%\VulnDb\vulndb.sqlite</c>.
-    /// Этот же путь подставляется в <c>|DataDirectory|</c> connection string'а
-    /// из App.config — поэтому EF6 автоматически открывает именно созданный нами файл.
-    /// 
-    /// При желании можно перевести в "portable" режим (БД лежит рядом с .exe):
-    /// в <see cref="ResolveDbDirectory"/> вернуть <see cref="AppDomain.BaseDirectory"/>.
-    /// </summary>
+    // Создаёт файл БД при первом запуске и накатывает на него схему
+    // из 01_schema.sqlite.sql. Должно вызываться до того, как EF откроет контекст.
     public static class SqliteBootstrap
     {
-        /// <summary>Имя файла БД в каталоге пользователя.</summary>
         private const string DbFileName = "vulndb.sqlite";
-
-        /// <summary>
-        /// Имя SQL-скрипта со схемой. Лежит в каталоге сборки (Output Directory)
-        /// — в проекте файл должен иметь свойство «Copy to Output Directory:
-        /// Copy if newer». См. README_SQLITE.md.
-        /// </summary>
         private const string SchemaFileName = "01_schema.sqlite.sql";
 
-        /// <summary>
-        /// Создаёт БД (если её нет) и накатывает схему. Возвращает полный путь
-        /// к файлу .sqlite — на случай, если приложению нужно показать его
-        /// пользователю в UI («База данных хранится здесь: …»).
-        /// </summary>
+        // Возвращает полный путь к .sqlite (вдруг пригодится показать в UI).
         public static string EnsureDatabase()
         {
             string dbDir = ResolveDbDirectory();
             string dbPath = Path.Combine(dbDir, DbFileName);
 
-            // |DataDirectory| в connection string'е (App.config) подставится этим значением.
-            // Должно быть установлено ДО первого открытия EF6-контекста, иначе будет
-            // искать файл в каталоге .exe и/или %TEMP%.
+            // подставится в |DataDirectory| из App.config
             AppDomain.CurrentDomain.SetData("DataDirectory", dbDir);
 
             Directory.CreateDirectory(dbDir);
 
             if (!File.Exists(dbPath))
             {
-                // Пустой файл .sqlite — обязательная подготовка перед накатыванием схемы.
                 SQLiteConnection.CreateFile(dbPath);
 
                 string schemaSql = LoadSchemaScript();
@@ -59,9 +33,7 @@ namespace Vullnerability.db
             }
             else
             {
-                // Файл уже существует — на каждом запуске включаем foreign_keys
-                // (это per-connection настройка, но ставим явно — на случай, если
-                // App.config забыли поправить).
+                // на всякий случай включаем foreign_keys и для уже существующей БД
                 using (var conn = new SQLiteConnection(BuildConnectionString(dbPath)))
                 {
                     conn.Open();
@@ -76,20 +48,13 @@ namespace Vullnerability.db
             return dbPath;
         }
 
-        /// <summary>
-        /// %LOCALAPPDATA%\VulnDb. Туда же будет писаться SQLite WAL-журнал, кэши и т.д.
-        /// </summary>
+        // %LOCALAPPDATA%\VulnDb
         private static string ResolveDbDirectory()
         {
             string baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             return Path.Combine(baseDir, "VulnDb");
         }
 
-        /// <summary>
-        /// Читает SQL-скрипт из каталога Output (рядом с .exe). Если файла нет —
-        /// бросает с понятной диагностикой, чтобы юзер не получил мутный
-        /// SQLiteException на первом же SELECT.
-        /// </summary>
         private static string LoadSchemaScript()
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -99,34 +64,26 @@ namespace Vullnerability.db
             {
                 throw new FileNotFoundException(
                     $"Не найден файл схемы '{SchemaFileName}' в каталоге '{baseDir}'. " +
-                    "Убедитесь, что файл добавлен в проект и его свойство " +
-                    "'Copy to Output Directory' = 'Copy if newer'.",
+                    "Проверь, что у файла стоит 'Copy to Output Directory: Copy if newer'.",
                     path);
             }
 
             return File.ReadAllText(path, Encoding.UTF8);
         }
 
-        /// <summary>
-        /// Накатывает SQL-скрипт целиком одним батчем. SQLite понимает несколько
-        /// statement'ов через ';' внутри одного <see cref="SQLiteCommand"/> — внешняя
-        /// транзакция гарантирует атомарность инициализации.
-        /// </summary>
         private static void ExecuteSchemaOnFreshDb(string dbPath, string schemaSql)
         {
             using (var conn = new SQLiteConnection(BuildConnectionString(dbPath)))
             {
                 conn.Open();
 
-                // foreign_keys в схеме включается явным PRAGMA, продублируем здесь —
-                // на старых версиях провайдера PRAGMA в скрипте не всегда применяется
-                // до начала транзакции.
                 using (var pragma = conn.CreateCommand())
                 {
                     pragma.CommandText = "PRAGMA foreign_keys = ON;";
                     pragma.ExecuteNonQuery();
                 }
 
+                // весь скрипт схемы накатываем одной транзакцией
                 using (var tx = conn.BeginTransaction())
                 using (var cmd = conn.CreateCommand())
                 {
@@ -138,11 +95,6 @@ namespace Vullnerability.db
             }
         }
 
-        /// <summary>
-        /// Минимальная корректная connection string для прямого использования
-        /// в SqliteBootstrap. Пакет EF6 (App.config) использует свою — там
-        /// добавлены Pooling и Journal Mode=WAL.
-        /// </summary>
         private static string BuildConnectionString(string dbPath)
         {
             return new SQLiteConnectionStringBuilder

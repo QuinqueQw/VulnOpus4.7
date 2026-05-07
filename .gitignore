@@ -1,0 +1,26 @@
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.cache
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+
+# Build artefacts
+*.pdb
+*.dll
+*.exe
+
+# ClickOnce / signing keys
+*.pfx
+
+# Misc
+*.log
+Thumbs.db
+.DS_Store

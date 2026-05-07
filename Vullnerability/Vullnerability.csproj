@@ -54,16 +54,10 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <ManifestCertificateThumbprint>F44F08E7E7C15072C41C36CF936DFDA9964E4FB4</ManifestCertificateThumbprint>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ManifestKeyFile>Vullnerability_TemporaryKey.pfx</ManifestKeyFile>
-  </PropertyGroup>
-  <PropertyGroup>
     <GenerateManifests>true</GenerateManifests>
   </PropertyGroup>
   <PropertyGroup>
-    <SignManifests>true</SignManifests>
+    <SignManifests>false</SignManifests>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
     <PlatformTarget>x64</PlatformTarget>
@@ -160,27 +154,7 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="db\cwes.cs" />
-    <Compile Include="db\exploitation_methods.cs" />
-    <Compile Include="db\exploit_availabilities.cs" />
-    <Compile Include="db\fix_methods.cs" />
-    <Compile Include="db\incident_relations.cs" />
-    <Compile Include="db\os_platforms.cs" />
-    <Compile Include="db\products.cs" />
-    <Compile Include="db\product_types.cs" />
-    <Compile Include="db\severity_levels.cs" />
-    <Compile Include="db\sysdiagrams.cs" />
-    <Compile Include="db\vendors.cs" />
     <Compile Include="db\VulnDbContext.cs" />
-    <Compile Include="db\vulnerabilities.cs" />
-    <Compile Include="db\vulnerability_external_ids.cs" />
-    <Compile Include="db\vulnerability_mitigations.cs" />
-    <Compile Include="db\vulnerability_products.cs" />
-    <Compile Include="db\vulnerability_source_links.cs" />
-    <Compile Include="db\vulnerability_testing_updates.cs" />
-    <Compile Include="db\vuln_classes.cs" />
-    <Compile Include="db\vuln_states.cs" />
-    <Compile Include="db\vuln_statuses.cs" />
     <Compile Include="ExcelImporter.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
@@ -232,7 +206,6 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
-    <None Include="Vullnerability_TemporaryKey.pfx" />
   </ItemGroup>
   <ItemGroup>
     <Service Include="{508349B6-6B84-4DF5-91F0-309BEEBAD82D}" />

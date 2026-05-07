@@ -7,40 +7,17 @@ using System.Data.Entity.ModelConfiguration.Conventions;
 
 namespace Vullnerability.db
 {
-    // ====================================================================
-    // EF6 Code First DbContext под 3НФ-схему БД (VulnDb).
-    // Хранилище: SQLite (одиночный файл .sqlite, без установки).
-    //
-    // Подключение в App.config:
-    //   <connectionStrings>
-    //     <add name="VulnDbContext"
-    //          connectionString="Data Source=|DataDirectory|\vulndb.sqlite;Version=3;Foreign Keys=True;Pooling=True;Journal Mode=WAL;Synchronous=Normal"
-    //          providerName="System.Data.SQLite.EF6" />
-    //   </connectionStrings>
-    //
-    //   |DataDirectory| подменяется в SqliteBootstrap.EnsureDatabase() — туда
-    //   записывается путь %LOCALAPPDATA%\VulnDb (см. SqliteBootstrap.cs).
-    //
-    // Миграция со старой SQL Server схемы:
-    //   * EF6-провайдер сменился: System.Data.SqlClient → System.Data.SQLite.EF6.
-    //   * HasPrecision(...) ниже игнорируется SQLite-провайдером (DECIMAL → REAL).
-    //   * Маппинги колонок и навигаций НЕ менялись — таблицы названы так же.
-    // ====================================================================
+    // EF6 Code First контекст для SQLite-БД с уязвимостями.
+    // Connection string и файл .sqlite готовит SqliteBootstrap.
     public class VulnDbContext : DbContext
     {
         public VulnDbContext() : base("name=VulnDbContext")
         {
-            // Не пытаемся пересоздавать БД — она уже создана скриптом 01_schema.sqlite.sql
-            // через SqliteBootstrap.EnsureDatabase() при старте приложения.
+            // БД уже создана скриптом 01_schema.sqlite.sql, EF её не трогает
             Database.SetInitializer<VulnDbContext>(null);
         }
 
-        /// <summary>
-        /// Использовать готовое <see cref="System.Data.Common.DbConnection"/>
-        /// (например, <c>SQLiteConnection</c> с явно собранной строкой). Полезно,
-        /// если путь к файлу .sqlite определяется в рантайме и не помещается в
-        /// App.config.
-        /// </summary>
+        // на случай, если путь к файлу .sqlite приходит извне
         public VulnDbContext(System.Data.Common.DbConnection connection, bool contextOwnsConnection)
             : base(connection, contextOwnsConnection)
         {
@@ -72,12 +49,12 @@ namespace Vullnerability.db
         {
             mb.Conventions.Remove<PluralizingTableNameConvention>();
 
-            // Точность DECIMAL(4,1) для CVSS-оценок
+            // CVSS — одна цифра после точки
             mb.Entity<Vulnerability>().Property(v => v.Cvss2_0_Score).HasPrecision(4, 1);
             mb.Entity<Vulnerability>().Property(v => v.Cvss3_0_Score).HasPrecision(4, 1);
             mb.Entity<Vulnerability>().Property(v => v.Cvss4_0_Score).HasPrecision(4, 1);
 
-            // M:N: products <-> product_types через product_product_types
+            // продукт — типы продукта (многие ко многим)
             mb.Entity<Product>()
                 .HasMany(p => p.ProductTypes)
                 .WithMany(t => t.Products)
@@ -88,7 +65,7 @@ namespace Vullnerability.db
                     m.MapRightKey("product_type_id");
                 });
 
-            // M:N: vulnerability <-> cwe через vulnerability_cwes (с явным entity-типом)
+            // уязвимость — CWE (многие ко многим, через отдельную сущность)
             mb.Entity<VulnerabilityCwe>()
                 .HasKey(vc => new { vc.VulnerabilityId, vc.CweId });
             mb.Entity<VulnerabilityCwe>()
@@ -106,9 +83,7 @@ namespace Vullnerability.db
         }
     }
 
-    // ============================================================================
-    // СПРАВОЧНИКИ
-    // ============================================================================
+    // ---- Справочники ----
 
     [Table("vendors")]
     public class Vendor
@@ -214,18 +189,13 @@ namespace Vullnerability.db
         public virtual ICollection<VulnerabilityCwe> VulnerabilityCwes { get; set; } = new HashSet<VulnerabilityCwe>();
     }
 
-    // ============================================================================
-    // ОСНОВНАЯ ТАБЛИЦА
-    // ============================================================================
+    // ---- Основная таблица ----
 
     [Table("vulnerabilities")]
     public class Vulnerability
     {
         [Key, Column("id")] public int Id { get; set; }
         [Column("bdu_code"), Required, StringLength(32)] public string BduCode { get; set; }
-        // SQLite не поддерживает SQL Server-овский 'nvarchar(max)' / 'date' в манифесте
-        // провайдера. Без TypeName EF6 сам подберёт TEXT для string и TEXT/REAL для DateTime —
-        // это работает и для SQL Server-варианта (он положит обычный nvarchar/datetime).
         [Column("name")] public string Name { get; set; }
         [Column("description")] public string Description { get; set; }
         [Column("discovery_date")] public DateTime? DiscoveryDate { get; set; }
@@ -243,7 +213,7 @@ namespace Vullnerability.db
         [Column("other_info")] public string OtherInfo { get; set; }
         [Column("exploitation_consequences")] public string ExploitationConsequences { get; set; }
 
-        // Полный текст уровня опасности (может включать несколько строк, по CVSS 2/3/4)
+        // развёрнутый текст уровня опасности (может содержать несколько строк по разным CVSS)
         [Column("severity_text")] public string SeverityText { get; set; }
 
         [Column("vuln_class_id")] public int? VulnClassId { get; set; }
@@ -274,9 +244,7 @@ namespace Vullnerability.db
         public virtual ICollection<VulnerabilityCwe> VulnerabilityCwes { get; set; } = new HashSet<VulnerabilityCwe>();
     }
 
-    // ============================================================================
-    // ПОДЧИНЁННЫЕ СУЩНОСТИ
-    // ============================================================================
+    // ---- Подчинённые сущности ----
 
     [Table("vulnerability_products")]
     public class VulnerabilityProduct
@@ -334,7 +302,7 @@ namespace Vullnerability.db
         [ForeignKey(nameof(VulnerabilityId))] public virtual Vulnerability Vulnerability { get; set; }
     }
 
-    // M:N: уязвимость <-> CWE (в BDU часто несколько CWE на одну уязвимость).
+    // у одной уязвимости может быть несколько CWE
     [Table("vulnerability_cwes")]
     public class VulnerabilityCwe
     {
