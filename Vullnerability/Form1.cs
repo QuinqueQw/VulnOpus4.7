@@ -66,7 +66,7 @@ namespace Vullnerability
 
         // ---- Справочники в фильтрах ----
 
-        // все списки для комбобоксов готовим сразу, чтобы UI не мигал
+        // списки для комбобоксов
         private class DictionariesSnapshot
         {
             public string[] Vendors;
@@ -271,23 +271,15 @@ namespace Vullnerability
             foreach (var item in _sortItems)
                 cmbSort.Items.Add(item.Title);
             cmbSort.SelectedIndex = 0;
-            UpdateSortComboText();
         }
 
-        // делаем стрелку в тексте комбо: ↓ — DESC, ↑ — ASC
-        private void UpdateSortComboText()
-        {
-            if (cmbSort.SelectedIndex < 0 || cmbSort.SelectedIndex >= _sortItems.Length) return;
-            string baseTitle = _sortItems[cmbSort.SelectedIndex].Title;
-            cmbSort.Text = baseTitle + (_sortDescending ? " ↓" : " ↑");
-        }
 
         private void SetupPageSizeCombo()
         {
             cmbPageSize.BeginUpdate();
             try
             {
-                // в Designer'е лежит «20», чистим и ставим наши три значения
+                // Устанавливаем кол-во выводимых записе на странице
                 cmbPageSize.Items.Clear();
                 cmbPageSize.Items.AddRange(new object[] { "10", "50", "100" });
                 cmbPageSize.SelectedIndex = 2;
@@ -307,7 +299,6 @@ namespace Vullnerability
             _sortDescending = true;
             _pageIndex = 0;
             RefreshCurrentPage();
-            UpdateSortComboText();
         }
 
         private void cmbPageSize_SelectedIndexChanged(object sender, EventArgs e)

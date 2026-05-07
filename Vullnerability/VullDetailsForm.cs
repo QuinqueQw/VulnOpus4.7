@@ -60,7 +60,7 @@ namespace Vullnerability
             panelScroll.BackColor = Color.FromArgb(30, 30, 30);
         }
 
-        // ---- Основная загрузка всех данных для карточки уязвимости ----
+        //  Основная загрузка всех данных для карточки уязвимости
         private void LoadData(int vulnId)
         {
             _vuln = _db.Vulnerabilities
@@ -85,7 +85,7 @@ namespace Vullnerability
 
             lblTitle.Text = $"BDU: {_vuln.BduCode}";
 
-            // уязвимое ПО грузим целиком на клиенте: EF6 плохо живёт с цепочкой outer join через nullable FK
+           
             var rawProducts = _db.VulnerabilityProducts
                 .Include(vp => vp.Product)
                 .Include(vp => vp.Product.Vendor)
@@ -94,7 +94,7 @@ namespace Vullnerability
                 .Where(vp => vp.VulnerabilityId == vulnId)
                 .ToList();
 
-            // если у продукта несколько типов ПО — каждый попадает в отдельную строку таблицы (как на bdu.fstec.ru)
+            // если у продукта несколько типов ПО — каждый попадает в отдельную строку таблицы 
             var softwareData = rawProducts
                 .SelectMany(vp =>
                 {
@@ -102,7 +102,7 @@ namespace Vullnerability
                     string software = StripVendorPrefix(vp.Product?.Name, vp.Product?.Vendor?.Name);
                     string version = ExtractVersionOnly(vp.ProductVersion);
                     // в Platform лежит полная строка «Vendor Product - Architecture»;
-                    // в табличную колонку потом обрежем только хвост-архитектуру
+                  
                     string platform = vp.OsPlatform?.Name ?? "";
 
                     var types = vp.Product?.ProductTypes?
@@ -115,7 +115,7 @@ namespace Vullnerability
                     if (types.Count == 0)
                     {
                         // Нет ни одного типа — всё равно выводим строку (с пустым «Тип ПО»),
-                        // чтобы не потерять упоминание продукта.
+                   
                         return new[]
                         {
                             new SoftwareInfo
@@ -288,14 +288,14 @@ namespace Vullnerability
             dgv.Columns.Add("ProductType", "Тип ПО");
             dgv.Columns.Add("Platform", "Архитектура (Платформа)");
 
-            // пропорции колонок подгоняли под вид bdu.fstec.ru
+            // пропорции колонок 
             dgv.Columns["Vendor"].FillWeight = 15;
             dgv.Columns["Software"].FillWeight = 35;
             dgv.Columns["Version"].FillWeight = 10;
             dgv.Columns["ProductType"].FillWeight = 20;
             dgv.Columns["Platform"].FillWeight = 20;
 
-            // в «Архитектура» кладём только хвост «… — 32-bit», полный OS-текст идёт отдельной строкой выше
+            // в «Архитектура» кладём только хвост «… — 32-bit»
             foreach (var item in softwareList)
                 dgv.Rows.Add(
                     item.Vendor,
@@ -386,14 +386,14 @@ namespace Vullnerability
         // ---- Форматирование значений для ячеек ----
         private string GetCweText()
         {
-            // в BDU бывает несколько CWE на одну уязвимость, берём из junction-таблицы
+           
             var cwes = _vuln?.VulnerabilityCwes?
                             .Where(vc => vc.Cwe != null)
                             .Select(vc => vc.Cwe)
                             .Distinct()
                             .ToList();
 
-            // фоллбэк на единичный _vuln.Cwe для старых записей без junction
+       
             if ((cwes == null || cwes.Count == 0) && _vuln?.Cwe != null)
                 cwes = new List<Cwe> { _vuln.Cwe };
 
@@ -408,7 +408,7 @@ namespace Vullnerability
 
         private string GetSeverityText()
         {
-            // предпочитаем полный текст из BDU — в нём сразу баллы CVSS, но строки бывают слитыми — нормализуем
+            // полный текст из BDU — в нём сразу баллы CVSS, но строки бывают слитыми — нормализуем
             if (!string.IsNullOrWhiteSpace(_vuln?.SeverityText))
                 return NormalizeSeverityText(_vuln.SeverityText);
             return _vuln?.SeverityLevel?.Name;
@@ -423,7 +423,7 @@ namespace Vullnerability
 
             s = Regex.Replace(
                 s,
-                @"(?<!^)\s*(?=(?:Критический|Высокий|Средний|Низкий|Информационный|Базовый)\s+уровень\s+опасности)",
+                @"(?<!^)\s*(?=(?:Критический|Высокий|Средний|Низкий|)\s+уровень\s+опасности)",
                 "\n");
 
             s = Regex.Replace(s, @"\n{2,}", "\n");
