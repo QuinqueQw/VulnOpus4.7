@@ -10,7 +10,6 @@ using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using OfficeOpenXml;
 using Vullnerability.db;
 
 namespace Vullnerability
@@ -37,8 +36,6 @@ namespace Vullnerability
                                                   SecurityProtocolType.Tls;
             ServicePointManager.ServerCertificateValidationCallback =
                 new RemoteCertificateValidationCallback(ValidateServerCertificate);
-
-            ExcelPackage.License.SetNonCommercialPersonal("YourName");
 
             LoadDictionaries();
             SetupSortCombo();
