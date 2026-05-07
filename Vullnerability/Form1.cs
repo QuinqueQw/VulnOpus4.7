@@ -38,7 +38,7 @@ namespace Vullnerability
             ServicePointManager.ServerCertificateValidationCallback =
                 new RemoteCertificateValidationCallback(ValidateServerCertificate);
 
-            
+            ExcelPackage.License.SetNonCommercialPersonal("YourName");
 
             LoadDictionaries();
             SetupSortCombo();
