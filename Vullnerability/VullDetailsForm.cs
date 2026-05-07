@@ -17,10 +17,10 @@ namespace Vullnerability
         private Vulnerability _vuln;
         private readonly int _vulnId;
 
-        // Вычисляемая ширина для word-wrap. Колонка-метка 220 + padding/scrollbar ≈ 240.
+        // ширина колонки со значениями, остаток вычитаем на левую колонку + скроллбар
         private const int FormWidth = 1000;
         private const int LabelColumn = 220;
-        private const int RightPad = 40;          // 10 padding + 17 scrollbar + 13 запас
+        private const int RightPad = 40;
         private int ValueColumnWidth => Math.Max(200, FormWidth - LabelColumn - RightPad);
 
         public class SoftwareInfo
@@ -60,9 +60,7 @@ namespace Vullnerability
             panelScroll.BackColor = Color.FromArgb(30, 30, 30);
         }
 
-        // ============================================================
-        // ОСНОВНАЯ ЗАГРУЗКА
-        // ============================================================
+        // ---- Основная загрузка всех данных для карточки уязвимости ----
         private void LoadData(int vulnId)
         {
             _vuln = _db.Vulnerabilities
@@ -87,8 +85,7 @@ namespace Vullnerability
 
             lblTitle.Text = $"BDU: {_vuln.BduCode}";
 
-            // ---- Уязвимое ПО (M:N + версия + платформа + тип ПО). Грузим на клиент чтобы избежать
-            // багов EF6 c outer join + chained nav через nullable FK.
+            // уязвимое ПО грузим целиком на клиенте: EF6 плохо живёт с цепочкой outer join через nullable FK
             var rawProducts = _db.VulnerabilityProducts
                 .Include(vp => vp.Product)
                 .Include(vp => vp.Product.Vendor)
@@ -97,17 +94,15 @@ namespace Vullnerability
                 .Where(vp => vp.VulnerabilityId == vulnId)
                 .ToList();
 
-            // Если у продукта несколько типов ПО — в таблице это несколько строк, в каждой ровно один тип
-            // (как на bdu.fstec.ru). Поэтому используем SelectMany: одна строка vulnerability_products
-            // разворачивается в N строк по числу типов (минимум одну — даже если типов нет вовсе).
+            // если у продукта несколько типов ПО — каждый попадает в отдельную строку таблицы (как на bdu.fstec.ru)
             var softwareData = rawProducts
                 .SelectMany(vp =>
                 {
                     string vendor = vp.Product?.Vendor?.Name ?? "";
                     string software = StripVendorPrefix(vp.Product?.Name, vp.Product?.Vendor?.Name);
                     string version = ExtractVersionOnly(vp.ProductVersion);
-                    // Полная строка осталась в Platform (нужна для отдельного блока «Операционные системы
-                    // и аппаратные платформы»). В колонке «Архитектура» выводим только её хвост — см. AddSoftwareRow.
+                    // в Platform лежит полная строка «Vendor Product - Architecture»;
+                    // в табличную колонку потом обрежем только хвост-архитектуру
                     string platform = vp.OsPlatform?.Name ?? "";
 
                     var types = vp.Product?.ProductTypes?
@@ -159,8 +154,7 @@ namespace Vullnerability
                 .Select(e => new { e.Source, e.ExternalId })
                 .ToList();
 
-            // Каждый идентификатор на своей строке, в формате «Источник: ID» (как на bdu.fstec.ru).
-            // Дополнительная пустая строка между группами разных источников — для читаемости.
+            // источники группируем, идентификаторы внутри группы сортируем и пишем в формате «Источник: ID»
             string extIdText = string.Join("\r\n\r\n",
                 extIds
                     .GroupBy(e => e.Source ?? "—")
@@ -188,18 +182,14 @@ namespace Vullnerability
                 testingUpdates.Select(t =>
                     $"{(string.IsNullOrWhiteSpace(t.UpdateIdentifier) ? "" : t.UpdateIdentifier + " — ")}{t.UpdateName}"));
 
-            // ---- Платформы для отдельной строки «Операционные системы и аппаратные платформы».
-            // Берём полные имена «Vendor Product - Architecture» из таблицы os_platforms — ровно
-            // как на bdu.fstec.ru, по одной записи в строку. Сортируем стабильно для красивого вывода.
+            // полные имена платформ для отдельной строки «ООС и аппаратные платформы»
             var platforms = softwareData.Select(s => s.Platform)
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct()
                 .OrderBy(p => p)
                 .ToList();
 
-            // ============================================================
-            // НАПОЛНЕНИЕ ТАБЛИЦЫ
-            // ============================================================
+            // ---- Строим таблицу полей ----
             AddTextRow("Описание уязвимости", _vuln.Description);
             AddSoftwareRow(softwareData);
             AddTextRow("Операционные системы и аппаратные платформы", string.Join("\r\n", platforms));
@@ -225,14 +215,8 @@ namespace Vullnerability
             AddTextRow("Прочая информация", _vuln.OtherInfo);
         }
 
-        // ============================================================
-        // СТРОКИ ТАБЛИЦЫ
-        // ============================================================
-
-        /// <summary>
-        /// Универсальная строка «метка + текст». Высота вычисляется по фактическому
-        /// размеру текста с учётом переноса слов в столбце.
-        /// </summary>
+        // ---- Строки таблицы ----
+        // высота строки считается по факту размера текста с учётом переноса слов
         private void AddTextRow(string fieldName, string value)
         {
             string text = string.IsNullOrWhiteSpace(value) ? "Данные уточняются" : value;
@@ -240,7 +224,6 @@ namespace Vullnerability
             int rowIndex = table.RowCount;
             table.RowCount++;
 
-            // Считаем высоту текста с переносом по ширине колонки значения
             using (var font = new Font(this.Font.FontFamily, 9))
             using (var headerFont = new Font(this.Font.FontFamily, 9, FontStyle.Bold))
             {
@@ -305,17 +288,14 @@ namespace Vullnerability
             dgv.Columns.Add("ProductType", "Тип ПО");
             dgv.Columns.Add("Platform", "Архитектура (Платформа)");
 
-            // Пропорции колонок как на bdu.fstec.ru: «Наименование ПО» и «Тип ПО» широкие,
-            // «Версия» — узкая (там часто прочерк).
+            // пропорции колонок подгоняли под вид bdu.fstec.ru
             dgv.Columns["Vendor"].FillWeight = 15;
             dgv.Columns["Software"].FillWeight = 35;
             dgv.Columns["Version"].FillWeight = 10;
             dgv.Columns["ProductType"].FillWeight = 20;
             dgv.Columns["Platform"].FillWeight = 20;
 
-            // В колонку «Архитектура» кладём только хвост после « — » («32-bit» / «64-bit» / «x86 (x32 / IA-32)»).
-            // Сама строка «Microsoft Corp Windows XP - 32-bit» как была в os_platforms.name так и остаётся —
-            // она полностью выводится в блоке «Операционные системы и аппаратные платформы».
+            // в «Архитектура» кладём только хвост «… — 32-bit», полный OS-текст идёт отдельной строкой выше
             foreach (var item in softwareList)
                 dgv.Rows.Add(
                     item.Vendor,
@@ -366,9 +346,7 @@ namespace Vullnerability
             table.Controls.Add(rtb, 1, rowIndex);
         }
 
-        // ============================================================
-        // ВСПОМОГАТЕЛЬНЫЕ ФАБРИКИ
-        // ============================================================
+        // ---- Фабрики ячеек ----
         private Label MakeFieldLabel(string text)
         {
             return new Label
@@ -385,10 +363,7 @@ namespace Vullnerability
             };
         }
 
-        /// <summary>
-        /// Многострочный TextBox без рамки/полос прокрутки — текст полностью вписан
-        /// в высоту строки, выделяется и копируется.
-        /// </summary>
+        // многострочный TextBox без рамки/скроллбаров, просто чтобы можно было выделить/скопировать
         private TextBox MakeValueBox(string text)
         {
             return new TextBox
@@ -408,20 +383,17 @@ namespace Vullnerability
             };
         }
 
-        // ============================================================
-        // УТИЛИТЫ ОТОБРАЖЕНИЯ
-        // ============================================================
+        // ---- Форматирование значений для ячеек ----
         private string GetCweText()
         {
-            // 1) Собираем все CWE из junction-таблицы vulnerability_cwes
-            //    (в BDU часто несколько CWE на одну уязвимость).
+            // в BDU бывает несколько CWE на одну уязвимость, берём из junction-таблицы
             var cwes = _vuln?.VulnerabilityCwes?
                             .Where(vc => vc.Cwe != null)
                             .Select(vc => vc.Cwe)
                             .Distinct()
                             .ToList();
 
-            // 2) Если junction пуст (старые данные), фоллбэком берём единичный _vuln.Cwe.
+            // фоллбэк на единичный _vuln.Cwe для старых записей без junction
             if ((cwes == null || cwes.Count == 0) && _vuln?.Cwe != null)
                 cwes = new List<Cwe> { _vuln.Cwe };
 
@@ -436,30 +408,24 @@ namespace Vullnerability
 
         private string GetSeverityText()
         {
-            // Предпочтительно — полный текст из BDU (может включать оценки по CVSS 2.0/3.1/4.0).
-            // В Excel часто две-три фразы «… уровень опасности (… составляет N)» идут одной строкой
-            // без переноса — нормализуем, чтобы каждая строка отображалась отдельно.
+            // предпочитаем полный текст из BDU — в нём сразу баллы CVSS, но строки бывают слитыми — нормализуем
             if (!string.IsNullOrWhiteSpace(_vuln?.SeverityText))
                 return NormalizeSeverityText(_vuln.SeverityText);
             return _vuln?.SeverityLevel?.Name;
         }
 
-        // В БДУ несколько уровней опасности часто склеены без переноса, например
-        // «...составляет 8.5)Высокий уровень опасности (...составляет 5.5)».
-        // WinForms TextBox в Multiline=true показывает перенос только по \r\n,
-        // одинарный \n игнорирует — поэтому сразу формируем CRLF.
+        // разбиваем слитые фразы «…)Высокий уровень опасности (…)» по строкам.
+        // WinForms TextBox в Multiline переносит только по \r\n, поэтому сразу отдаём CRLF
         private static string NormalizeSeverityText(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return raw;
             string s = raw.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
 
-            // Перед каждым «<уровень> уровень опасности» (кроме самого начала) ставим перевод строки.
             s = Regex.Replace(
                 s,
                 @"(?<!^)\s*(?=(?:Критический|Высокий|Средний|Низкий|Информационный|Базовый)\s+уровень\s+опасности)",
                 "\n");
 
-            // Схлопываем подряд идущие переводы и переходим на CRLF для WinForms.
             s = Regex.Replace(s, @"\n{2,}", "\n");
             return s.Replace("\n", "\r\n").Trim();
         }
@@ -481,62 +447,45 @@ namespace Vullnerability
 
         private static string FmtDate(DateTime? d) => d?.ToString("dd.MM.yyyy") ?? "—";
 
-        /// <summary>
-        /// Из строки вида «Microsoft Corp Windows XP - 32-bit» вырезает хвост «32-bit» (архитектура).
-        /// Поддерживает форматы НБДУ: «32-bit», «64-bit», «x86 (x32 / IA-32)», «IA-64», «ARM», «x64» и т.п.
-        /// Если в имени нет сепаратора « — » / « - » — возвращает исходную строку как есть.
-        /// </summary>
+        // из «Microsoft Corp Windows XP - 32-bit» берём хвост после « — » / « - » — это и есть архитектура
         private static string ExtractArchitecture(string platformName)
         {
             if (string.IsNullOrWhiteSpace(platformName)) return "";
             string s = platformName.Trim();
 
-            // Сначала ищем разделитель « — » (тире em-dash) или « - » (дефис hyphen) — это формат БДУ
-            // «Vendor Product - Architecture» или «Vendor Product — Architecture».
             int dashIdx = s.LastIndexOf(" — ", StringComparison.Ordinal);
             int hyphenIdx = s.LastIndexOf(" - ", StringComparison.Ordinal);
             int idx = Math.Max(dashIdx, hyphenIdx);
-            int sepLen = (idx == dashIdx) ? 3 : 3; // « — » и « - » оба в 3 символа в .NET
+            int sepLen = 3; // « — » и « - » в .NET оба по 3 символа
             if (idx > 0)
             {
                 string tail = s.Substring(idx + sepLen).Trim();
-                // Адекватная длина архитектуры — не больше 80 символов; иначе это очевидно не «xxx-bit»,
-                // а кусок названия ПО — в этом случае показываем всю исходную строку.
+                // если «хвост» вышел подозрительно длинным — скорее это кусок названия, показываем всю строку
                 if (tail.Length > 0 && tail.Length <= 80) return tail;
             }
             return s;
         }
 
-        /// <summary>
-        /// В БДУ ячейка «Версия ПО» хранит формат «&lt;версия&gt; (&lt;имя ОС&gt;)», например
-        /// «- (Windows XP)» или «1.0 (Windows 7)». В колонке «Версия ПО» нужна только сама версия,
-        /// контекст ОС уже виден в колонках «Наименование ПО» / «Архитектура».
-        /// Возвращает «-» если версии нет (типичный случай в БДУ — прочерк).
-        /// </summary>
+        // в BDU «Версия ПО» бывает в виде «1.0 (Windows 7)» — имя ОС уже видно в соседних колонках,
+        // оставляем только саму версию; если версии нет — вернём «-»
         private static string ExtractVersionOnly(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "-";
             string s = raw.Trim();
 
-            // Отрезаем «(... имя ОС ...)» и всё что после.
             int openParen = s.IndexOf('(');
             if (openParen > 0)
                 s = s.Substring(0, openParen).Trim();
 
-            // Удаляем висячий разделитель типа « —» / « -» в конце, если такой остался.
+            // висячий разделитель/тире в конце срезаем
             s = s.TrimEnd('—', '-', ' ', '\t');
             if (string.IsNullOrWhiteSpace(s)) return "-";
 
-            // Если кроме одиночного «-» / «—» больше ничего нет — нормализуем к «-».
             if (s == "—") return "-";
             return s;
         }
 
-        /// <summary>
-        /// Бывает, в products.name имя ПО хранится вместе с вендором («Microsoft Corp Windows XP»).
-        /// Чтобы в колонке «Наименование ПО» была только «Windows XP» — срежем префикс вендора.
-        /// Если vendor пустой или не совпадает — возвращаем исходную строку как есть.
-        /// </summary>
+        // в products.name вендор иногда входит в начало имени («Microsoft Corp Windows XP») — срезаем префикс
         private static string StripVendorPrefix(string productName, string vendorName)
         {
             if (string.IsNullOrWhiteSpace(productName)) return "";

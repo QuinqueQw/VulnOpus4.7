@@ -47,13 +47,9 @@ namespace Vullnerability
             InitRecentList();
             LoadRecentVulns();
             WireSearchEnter();
-            // ArrangePagingButtons() больше не нужен — раскладку делает Designer
-            // (panelBottomBar c Dock=Left/Fill/Right на трёх кнопках).
         }
 
-        /// <summary>
-        /// Чтобы Enter в поле поиска применял фильтр (как на bdu.fstec.ru).
-        /// </summary>
+        // чтобы Enter в поле поиска сразу применял фильтр
         private void WireSearchEnter()
         {
             if (txtSearchName == null) return;
@@ -71,13 +67,9 @@ namespace Vullnerability
         private static bool ValidateServerCertificate(object sender, X509Certificate certificate,
             X509Chain chain, SslPolicyErrors sslPolicyErrors) => true;
 
-        // ============================================================
-        // СПРАВОЧНИКИ В ФИЛЬТРАХ
-        // ============================================================
-        /// <summary>
-        /// Списки, нужные для всех комбобоксов фильтра. Готовятся один раз,
-        /// применяются одним батчем — без «промежуточных» пустых состояний UI.
-        /// </summary>
+        // ---- Справочники в фильтрах ----
+
+        // все списки для комбобоксов готовим сразу, чтобы UI не мигал
         private class DictionariesSnapshot
         {
             public string[] Vendors;
@@ -96,11 +88,7 @@ namespace Vullnerability
             public string[] ExternalIds;
         }
 
-        /// <summary>
-        /// Семейства ОС без версий, которыми заполняется cmbOsName. Из этого
-        /// списка в справочник UI попадают только те фамилии, которые реально встречаются в
-        /// os_platforms (чтобы не показывать заведомо пустые опции).
-        /// </summary>
+        // семейства ОС, из них в cmbOsName попадут только те, что реально есть в БД
         private static readonly string[] KnownOsFamilies = new[]
         {
             "Windows", "Linux", "macOS", "OS X", "iOS", "Android",
@@ -110,17 +98,13 @@ namespace Vullnerability
             "VMware ESXi", "Cisco IOS", "Juniper Junos"
         };
 
-        /// <summary>
-        /// Полный сбор данных справочников из БД. Должно вызываться с выделенным для
-        /// этого вызова VulnDbContext (DbContext не thread-safe).
-        /// </summary>
+        // DbContext не thread-safe, поэтому под фоновый вызов нужен свой ctx
         private static DictionariesSnapshot FetchDictionaries(VulnDbContext ctx)
         {
             var platforms = ctx.OsPlatforms.AsNoTracking()
                 .OrderBy(p => p.Name).Select(p => p.Name).ToArray();
 
-            // Семейства ОС без версий — берём из фиксированного списка только те,
-            // что реально встречаются в os_platforms.name (case-insensitive substring).
+            // из списка ОС оставляем только те, что встречаются в os_platforms.name
             var osFamilies = KnownOsFamilies
                 .Where(f => platforms.Any(p =>
                     !string.IsNullOrEmpty(p) &&
@@ -128,8 +112,7 @@ namespace Vullnerability
                 .OrderBy(f => f)
                 .ToArray();
 
-            // Автодополнение для «Версия ПО» и «Другие ИД» — берём до 10 000 самых
-            // частых значений (сортировка по count desc в SQL).
+            // для автодополнения «Версия» и «Другие ИД» берём топ-10000 частых значений
             var versions = ctx.VulnerabilityProducts.AsNoTracking()
                 .Where(vp => vp.ProductVersion != null && vp.ProductVersion != "")
                 .GroupBy(vp => vp.ProductVersion)
@@ -179,13 +162,9 @@ namespace Vullnerability
             };
         }
 
-        /// <summary>
-        /// Применяет подготовленные данные к комбобоксам одним батчем.
-        /// Сохраняет текущий выбор в комбобоксах во время обновления.
-        /// </summary>
+        // заполняем все комбобоксы разом (внутри SuspendLayout)
         private void ApplyDictionaries(DictionariesSnapshot d)
         {
-            // Приостанавливаем любые лейаутные пересчёты на время рефила.
             this.SuspendLayout();
             try
             {
@@ -193,7 +172,7 @@ namespace Vullnerability
                 FillCombo(cmbProductType, d.ProductTypes);
                 FillCombo(cmbProduct, d.Products);
                 FillCombo(cmbPlatform, d.Platforms);
-                // cmbOsName — только семейства ОС без версий/разрядности.
+                // в cmbOsName кладём только семейства, без версий
                 FillCombo(cmbOsName, d.OsFamilies);
                 FillCombo(cmbStatus, d.Statuses);
                 FillCombo(cmbClass, d.Classes);
@@ -203,23 +182,17 @@ namespace Vullnerability
                 FillCombo(cmbFixMethod, d.FixMethods);
                 FillCombo(cmbYearAdded, d.Years);
 
-                // Автодополнение для текстовых полей «Версия ПО» и «Другие ИД».
                 AttachAutoComplete(txtVersion, d.Versions);
                 AttachAutoComplete(txtOtherId, d.ExternalIds);
             }
             finally
             {
                 this.ResumeLayout(false);
-                // Единственная перерисовка панели фильтров.
                 this.PerformLayout();
             }
         }
 
-        /// <summary>
-        /// Подключает к TextBox автодополнение по переданному списку значений.
-        /// Под капотом WinForms AutoCompleteCustomSource — выпадашка предложений
-        /// выводится с первого введённого символа.
-        /// </summary>
+        // выпадающее автодополнение для TextBox
         private static void AttachAutoComplete(TextBox tb, string[] values)
         {
             if (tb == null) return;
@@ -231,18 +204,13 @@ namespace Vullnerability
             tb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
         }
 
-        /// <summary>
-        /// Синхронная версия — используется в конструкторе формы. Для обновления после
-        /// импорта используйте LoadDictionariesAsync().
-        /// </summary>
+        // синхронный вариант — из конструктора
         private void LoadDictionaries()
         {
             ApplyDictionaries(FetchDictionaries(db));
         }
 
-        /// <summary>
-        /// Асинхронный рефреш — сбор данных на фоновом потоке, применение на UI.
-        /// </summary>
+        // асинхронный вариант — после импорта
         private async Task LoadDictionariesAsync()
         {
             var snap = await Task.Run(() =>
@@ -253,10 +221,7 @@ namespace Vullnerability
             ApplyDictionaries(snap);
         }
 
-        /// <summary>
-        /// Батчевое заполнение комбобокса: сохраняем текущее значение, BeginUpdate →
-        /// AddRange → EndUpdate. Без промежуточной перерисовки и без «исчезающих» списков.
-        /// </summary>
+        // перезаливаем комбобокс одним батчем, старый выбор сохраняем
         private void FillCombo(ComboBox combo, string[] values)
         {
             if (combo == null) return;
@@ -266,7 +231,7 @@ namespace Vullnerability
             try
             {
                 combo.Items.Clear();
-                // Цельный массив: пустый элемент + все значения. AddRange одним вызовом.
+                // первым идёт пустой элемент (сброс фильтра)
                 if (values != null && values.Length > 0)
                 {
                     var arr = new object[values.Length + 1];
@@ -281,7 +246,6 @@ namespace Vullnerability
                 combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
                 combo.AutoCompleteSource = AutoCompleteSource.ListItems;
 
-                // Восстанавливаем выбор, если он всё ещё есть в списке.
                 if (!string.IsNullOrEmpty(previousText))
                 {
                     int idx = combo.Items.IndexOf(previousText);
@@ -294,10 +258,8 @@ namespace Vullnerability
             }
         }
 
-        // ============================================================
-        // СОРТИРОВКА / ПАГИНАЦИЯ
-        // ============================================================
-        // 3 пункта сортировки + переключение направления по повторному клику на тот же элемент.
+        // ---- Сортировка и пагинация ----
+
         private static readonly (string Title, SortField Field)[] _sortItems =
         {
             ("По идентификатору",  SortField.BduId),
@@ -315,7 +277,7 @@ namespace Vullnerability
             UpdateSortComboText();
         }
 
-        // Обновляем текст комбо с символом направления, чтобы пользователь видел: DESC ↓ / ASC ↑.
+        // делаем стрелку в тексте комбо: ↓ — DESC, ↑ — ASC
         private void UpdateSortComboText()
         {
             if (cmbSort.SelectedIndex < 0 || cmbSort.SelectedIndex >= _sortItems.Length) return;
@@ -325,14 +287,13 @@ namespace Vullnerability
 
         private void SetupPageSizeCombo()
         {
-            // В Designer.cs набор Items уже задан, но содержит «20» и пересекается с нашим
-            // списком — поэтому сначала чистим, потом ставим только три нужных значения.
             cmbPageSize.BeginUpdate();
             try
             {
+                // в Designer'е лежит «20», чистим и ставим наши три значения
                 cmbPageSize.Items.Clear();
                 cmbPageSize.Items.AddRange(new object[] { "10", "50", "100" });
-                cmbPageSize.SelectedIndex = 2; // 100 по умолчанию
+                cmbPageSize.SelectedIndex = 2;
             }
             finally
             {
@@ -344,8 +305,7 @@ namespace Vullnerability
         {
             int idx = cmbSort.SelectedIndex;
             if (idx < 0 || idx >= _sortItems.Length) return;
-            // При смене поля — начинаем с DESC по умолчанию («от новых к старым» / «от больших CVSS к меньшим»).
-            // Тогл направления делается повторным кликом на тот же пункт (см. WndProc выше).
+            // при смене поля всегда начинаем с DESC
             _sortField = _sortItems[idx].Field;
             _sortDescending = true;
             _pageIndex = 0;
@@ -362,9 +322,8 @@ namespace Vullnerability
 
 
 
-        // ============================================================
-        // СПИСОК "ПОСЛЕДНИЕ"
-        // ============================================================
+        // ---- Список «Последние» ----
+
         private void InitRecentList()
         {
             lstRecentVulns.DrawMode = DrawMode.OwnerDrawVariable;
@@ -373,8 +332,7 @@ namespace Vullnerability
             lstRecentVulns.DoubleClick += lstRecentVulns_DoubleClick;
         }
 
-        // Паддинги элемента списка. Подобраны так, чтобы визуально было похоже на блок «Последние изменения»
-        // на bdu.fstec.ru: дата вверху, описание ниже с переносом по словам, между элементами воздух.
+        // паддинги в элементе списка
         private const int RecentItemSidePad = 6;
         private const int RecentItemTopPad = 4;
         private const int RecentItemBottomPad = 8;
@@ -387,7 +345,7 @@ namespace Vullnerability
             string description = SquashWhitespace(v.Description) ?? string.Empty;
 
             int contentWidth = Math.Max(50, lstRecentVulns.ClientSize.Width - RecentItemSidePad * 2);
-            // Для даты (одна строка) — высота фиксированная, для описания — рендер word-wrap.
+            // дата — одна строка, описание — с переносом по словам
             var dateSize = e.Graphics.MeasureString("06.05.2025", lstRecentVulns.Font, contentWidth);
             var descSize = string.IsNullOrEmpty(description)
                 ? new SizeF(0, 0)
@@ -407,7 +365,7 @@ namespace Vullnerability
             string date = (v.PublicationDate ?? v.DiscoveryDate ?? v.LastUpdateDate)?.ToString("dd.MM.yyyy") ?? "—";
             string description = SquashWhitespace(v.Description) ?? string.Empty;
 
-            // 1) Дата сверху (более бледная строка-ориентир — как на скрине).
+            // дата сверху — более бледным цветом
             int contentLeft = e.Bounds.Left + RecentItemSidePad;
             int contentTop = e.Bounds.Top + RecentItemTopPad;
             int contentWidth = e.Bounds.Width - RecentItemSidePad * 2;
@@ -417,7 +375,7 @@ namespace Vullnerability
             using (var dateBrush = new SolidBrush(Color.FromArgb(180, 180, 180)))
                 e.Graphics.DrawString(date, e.Font, dateBrush, dateRect);
 
-            // 2) Описание ниже, выбивается по словам по ширине элемента.
+            // описание ниже с переносом по словам
             if (!string.IsNullOrEmpty(description))
             {
                 float descTop = dateRect.Bottom + RecentDateGap;
@@ -431,23 +389,20 @@ namespace Vullnerability
             e.DrawFocusRectangle();
         }
 
-        // Сжимает все whitespace-последовательности (переносы/табуляции) в одинарный пробел —
-        // в BDU описания иногда идут с лишними переводами строки в середине фразы.
+        // в BDU описания иногда с лишними переносами — выравниваем в одну строку
         private static string SquashWhitespace(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;
             return System.Text.RegularExpressions.Regex.Replace(s.Trim(), "\\s+", " ");
         }
 
-        // Уровни опасности от самого опасного к самому безопасному.
-        // Используется, чтобы из severity_text (где может быть несколько уровней по
-        // разным версиям CVSS) выбрать «самый низкий» — т.е. наименее тревожный.
+        // от самого опасного к самому безопасному
         private static readonly string[] SeverityOrder =
             { "крит", "высок", "сред", "низк", "информ" };
 
+        // в severity_text бывает несколько уровней (по CVSS 2/3/4) — берём самый безопасный
         private static string PickLowestSeverity(string severityText, string fallback)
         {
-            // Ищем все упоминания уровней в severity_text. Берём тот, что ниже всего по шкале.
             int lowest = -1;
             if (!string.IsNullOrWhiteSpace(severityText))
             {
@@ -457,7 +412,7 @@ namespace Vullnerability
             }
             if (lowest >= 0) return SeverityOrder[lowest];
 
-            // Если в тексте ничего не нашли — пытаемся распознать справочное имя.
+            // в тексте ничего не нашли — отдаём справочное имя
             return (fallback ?? string.Empty).ToLowerInvariant();
         }
 
@@ -472,9 +427,7 @@ namespace Vullnerability
             ApplyRecentVulnsToList();
         }
 
-        /// <summary>
-        /// Асинхронный рефреш «Последних» — запрос на фоновом потоке.
-        /// </summary>
+        // фоновый рефреш списка «Последние» (после импорта)
         private async Task LoadRecentVulnsAsync()
         {
             var ids = await Task.Run(() =>
@@ -490,7 +443,7 @@ namespace Vullnerability
                 }
             });
 
-            // Подтягиваем верхние 10 из «osnovnogo» домашнего контекста — их хватит для UI.
+            // те же 10 записей перезагружаем уже в основной контекст — для UI этого хватит
             _recentVulns = db.Vulnerabilities.Where(v => ids.Contains(v.Id))
                 .OrderByDescending(v =>
                     v.PublicationDate ?? v.DiscoveryDate ?? v.LastUpdateDate ?? new DateTime(1900, 1, 1))
@@ -501,8 +454,7 @@ namespace Vullnerability
 
         private void ApplyRecentVulnsToList()
         {
-            // Сам текст элементов не используется при отрисовке (рисуем по _recentVulns), но НУЖЕН для Items.Count.
-            // Описываем каждую запись как «дата + описание» — это же строка идёт в ToolTip / клавиатурный поиск.
+            // рисуем по _recentVulns, но Items.Count должен быть правильным — поэтому добавляем строки
             lstRecentVulns.BeginUpdate();
             try
             {
@@ -535,9 +487,8 @@ namespace Vullnerability
             using (var form = new VullDetailsForm(vuln.Id)) form.ShowDialog();
         }
 
-        // ============================================================
-        // ОТРИСОВКА ТЕКУЩЕЙ СТРАНИЦЫ
-        // ============================================================
+        // ---- Отрисовка текущей страницы ----
+
         private void LoadData()
         {
             _pageIndex = 0;
@@ -546,8 +497,7 @@ namespace Vullnerability
 
         private void RefreshCurrentPage()
         {
-            // Чтобы не тянуть из БД все совпавшие записи в память и режать по страницам на клиенте
-            // — всё выполняется на сервере (Count + Skip + Take + AsNoTracking).
+            // пагинацию и фильтры делаем на стороне БД, в память тянем только страницу
             var query = db.Vulnerabilities.AsNoTracking()
                           .Include(v => v.SeverityLevel)
                           .AsQueryable();
@@ -571,8 +521,7 @@ namespace Vullnerability
                 var row = dgvVulns.Rows[rowIndex];
                 row.Tag = vuln;
 
-                // Если в severity_text перечислено несколько уровней (CVSS 2.0/3.0/4.0)
-                // — берём самый «мягкий» (наименее опасный) и красим по нему.
+                // левая полоска — цвет по самому безопасному из уровней
                 var sev = PickLowestSeverity(vuln.SeverityText, vuln.SeverityLevel?.Name);
                 Color sevColor;
                 if (sev.Contains("крит")) sevColor = Color.FromArgb(200, 50, 50);
@@ -594,13 +543,11 @@ namespace Vullnerability
             btnNextPage.Enabled = _pageIndex < totalPages - 1;
         }
 
-        // ============================================================
-        // ФИЛЬТРЫ
-        // ============================================================
+        // ---- Фильтры ----
+
         private IQueryable<Vulnerability> ApplyFilters(IQueryable<Vulnerability> source)
         {
-            // Универсальный поиск по «Имя/Поиск»: BDU-код, наименование, описание,
-            // вендор и название продукта (через vulnerability_products → products → vendors).
+            // общий поиск — по коду, имени, описанию, вендору и продукту
             var text = txtSearchName?.Text?.Trim();
             if (!string.IsNullOrWhiteSpace(text))
             {
@@ -707,8 +654,7 @@ namespace Vullnerability
                 source = source.Where(v =>
                     v.IncidentRelation != null && v.IncidentRelation.Name == "Да");
 
-            // Фильтр по дате — раньше был in-memory; теперь идёт SQL-выражением
-            // (DiscoveryDate или PublicationDate в [from; to) — EF6 отлично транслирует в WHERE).
+            // диапазон дат — ищем по DiscoveryDate или PublicationDate
             if (chkUseDate.Checked)
             {
                 var from = dtDateFrom.Value.Date;
@@ -721,12 +667,8 @@ namespace Vullnerability
             return source;
         }
 
-        // ApplyInMemoryFilters больше не нужен — все фильтры переехали в ApplyFilters на сервер (прямой
-        // SQL-фильтр + Skip/Take в SQL = пагинация на BigInt без перегона данных в память приложения).
+        // ---- Сортировка ----
 
-        // ============================================================
-        // СОРТИРОВКА
-        // ============================================================
         private IQueryable<Vulnerability> ApplySorting(IQueryable<Vulnerability> source)
         {
             switch (_sortField)
@@ -743,14 +685,8 @@ namespace Vullnerability
 
                 case SortField.Severity:
                 default:
-                    // Двухуровневая сортировка как на bdu.fstec.ru:
-                    //   1) ПЕРВИЧНЫЙ ключ — severity_level_id (справочник засеян в порядке
-                    //      Критический=1 → Высокий=2 → Средний=3 → Низкий=4 → Информационный=5,
-                    //      см. 01_schema.sql). Записи без severity_level_id уезжают в самый низ.
-                    //   2) ВТОРИЧНЫЙ ключ — MAX(CVSS 2.0, 3.1, 4.0) (число из «скобок» в severity_text).
-                    //      Так внутри одного уровня уязвимости отсортированы от более опасных к менее.
-                    // Без первичного ключа («Критический», «Средний» и т.д.) перемешивались, потому что
-                    // у некоторых записей CVSS-колонки NULL/0, а уровень при этом проставлен — и наоборот.
+                    // сначала по severity_level_id (1=Критический … 5=Информационный, NULL в конец),
+                    // потом по максимуму из CVSS 2/3/4
                     if (_sortDescending)
                         return source
                             .OrderBy(v => v.SeverityLevelId ?? int.MaxValue)
@@ -774,9 +710,8 @@ namespace Vullnerability
             }
         }
 
-        // ============================================================
-        // ПАГИНАЦИЯ
-        // ============================================================
+        // ---- Пагинация ----
+
         private void btnNextPage_Click(object sender, EventArgs e)
         {
             var baseQuery = ApplyFilters(db.Vulnerabilities.AsNoTracking().AsQueryable());
@@ -810,9 +745,7 @@ namespace Vullnerability
             txtVersion?.Clear();
             txtOtherId?.Clear();
 
-            // ApplyFilters читает cmb.Text (не SelectedItem), поэтому SelectedIndex=-1
-            // в ComboBox со стилем DropDown (autocomplete) не очищает текстовое поле —
-            // надо явно сбрасывать и SelectedIndex, и Text.
+            // в DropDown ComboBox сброс SelectedIndex не очищает Text, сбрасываем оба
             foreach (ComboBox cmb in new[]
             {
                 cmbVendor, cmbProduct, cmbProductType, cmbStatus, cmbClass,
@@ -828,8 +761,7 @@ namespace Vullnerability
             chkUseDate.Checked = false;
             chkHasIncidents.Checked = false;
 
-            // Даты приводим в исходное состояние (сегодня / сегодня), чтобы при следующем
-            // включении chkUseDate пользователь не увидел случайно оставленный диапазон.
+            // даты выставляем на сегодня, чтобы при следующем включении chkUseDate не вылез старый диапазон
             var today = DateTime.Today;
             if (dtDateFrom != null) dtDateFrom.Value = today;
             if (dtDateTo != null) dtDateTo.Value = today;
@@ -838,12 +770,9 @@ namespace Vullnerability
             RefreshCurrentPage();
         }
 
-        // ============================================================
-        // ИМПОРТ ИЗ БДУ
-        // ============================================================
-        /// <summary>
-        /// Все элементы панели фильтра, которые нужно блокировать на время импорта.
-        /// </summary>
+        // ---- Импорт из БДУ ----
+
+        // элементы фильтра, которые на время импорта отключаем
         private Control[] FilterControls() => new Control[]
         {
             cmbVendor, cmbProduct, cmbProductType, cmbStatus, cmbClass,
@@ -860,8 +789,7 @@ namespace Vullnerability
 
         private async void btnUpdateFromBdu_Click(object sender, EventArgs e)
         {
-            // Блокируем UI фильтров, пока идёт импорт — и ожидающий курсор вместо
-            // «исчезающих/появляющихся» комбобоксов.
+            // блокируем фильтры и кнопку на время импорта
             btnUpdateFromBdu.Enabled = false;
             btnUpdateFromBdu.Text = "Обновление...";
             SetFilterUiEnabled(false);
@@ -877,7 +805,7 @@ namespace Vullnerability
                     await client.DownloadFileTaskAsync(new Uri(ExcelUrl), tempFile);
                 }
 
-                // Импорт — полностью на фоновом потоке (отдельный коннекшн).
+                // импорт делаем в фоне и через отдельный коннекшн
                 string connStr = db.Database.Connection.ConnectionString;
                 var stats = await Task.Run(() =>
                 {
@@ -889,8 +817,7 @@ namespace Vullnerability
                     $"Импорт завершён!\nДобавлено: {stats.AddedVulns}\nПропущено (уже есть): {stats.SkippedVulns}",
                     "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-                // Все постимпортные обновления тоже асинхронные: справочники и список
-                // «Последние» — в фоне; применение одним батчем без промежуточных состояний.
+                // после импорта рефрешим справочники и список «Последние»
                 await LoadDictionariesAsync();
                 await LoadRecentVulnsAsync();
                 RefreshCurrentPage();

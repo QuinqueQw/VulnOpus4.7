@@ -10,13 +10,8 @@ using OfficeOpenXml;
 
 namespace Vullnerability.db
 {
-    /// <summary>
-    /// Импорт vullist.xlsx (БДУ ФСТЭК) в нормализованную 3НФ-схему VulnDb (SQLite).
-    /// Стратегия: пачка INSERT'ов в одной транзакции через prepared statement +
-    /// промежуточные отрицательные ключи, чтобы за один проход вставлять и саму уязвимость,
-    /// и все её M:N / 1:N связи. SQLite с WAL + Synchronous=Normal даёт достаточную
-    /// скорость вставки (десятки тысяч рядов в секунду) — SqlBulkCopy не нужен.
-    /// </summary>
+    // Читает vullist.xlsx БДУ ФСТЭК и льёт в SQLite-БД батчами:
+    // все INSERT'ы прогоняем в одной транзакции, временные id для связей — отрицательные.
     public class ExcelImporter
     {
         public class ImportStatistics
@@ -35,20 +30,14 @@ namespace Vullnerability.db
             _connStr = connectionString;
         }
 
-        // ============================================================
-        // ВХОДНАЯ ТОЧКА
-        // ============================================================
         public ImportStatistics ImportFromExcel(string path)
         {
             var stats = new ImportStatistics();
 
             using (var package = new ExcelPackage(new FileInfo(path)))
             {
-                // Лист 1 «Уязвимости» — основные записи. Лист 2 «Компоненты» — развёрнутый список вендоров/
-                // продуктов/версий/платформ по одной строке на каждый компонент (один и тот же BDU повторяется много раз).
-                // Для BDU, присутствующих в листе 2, берём продукты оттуда (он авторитетен и разбит ровно по компонентам),
-                // в листе 1 для этих BDU пропускаем парсинг запятых-списков «Вендор ПО/Название ПО/Версия ПО/Платформа»,
-                // чтобы не было двойных/ломаных записей в vulnerability_products.
+                // в vullist.xlsx 2 листа: «Уязвимости» и «Компоненты» (по строке на каждый компонент).
+                // если BDU есть в «Компонентах», берём продукты оттуда и в листе 1 их разбор пропускаем
                 ExcelWorksheet sheetVulns = FindSheet(package, "Уязвимости")
                                           ?? package.Workbook.Worksheets.FirstOrDefault();
                 ExcelWorksheet sheetComps = FindSheet(package, "Компоненты");
@@ -67,9 +56,7 @@ namespace Vullnerability.db
             return stats;
         }
 
-        /// <summary>
-        /// Находит лист по имени (case-insensitive, с нормализацией пробелов).
-        /// </summary>
+        // ищем лист по имени, регистр и лишние пробелы игнорируем
         private static ExcelWorksheet FindSheet(ExcelPackage pkg, string name)
         {
             string target = NormHeader(name);
@@ -77,9 +64,7 @@ namespace Vullnerability.db
                 ws => NormHeader(ws.Name) == target);
         }
 
-        /// <summary>
-        /// Предварительный проход по листу «Компоненты»: собираем BDU-коды, встречающиеся там.
-        /// </summary>
+        // пробегаемся по «Компонентам» и собираем BDU-коды, которые там есть
         private HashSet<string> PrescanComponentsBdus(ExcelWorksheet ws)
         {
             var set = new HashSet<string>();
@@ -93,12 +78,10 @@ namespace Vullnerability.db
             return set;
         }
 
-        // ============================================================
-        // ИМПОРТ ОДНОГО ЛИСТА
-        // ============================================================
+        // ---- Импорт листа «Уязвимости» ----
         private void ImportWorksheet(ExcelWorksheet ws, ImportStatistics stats, HashSet<string> componentBdus)
         {
-            // -------- Загрузка справочников в кэш --------
+            // все справочники вытягиваем в память один раз
             HashSet<string> existingBdu = LoadHashSet("SELECT bdu_code FROM vulnerabilities");
             Dictionary<string, int> vendors = LoadDict("SELECT id, name FROM vendors");
             Dictionary<string, int> productTypes = LoadDict("SELECT id, name FROM product_types");
@@ -116,7 +99,7 @@ namespace Vullnerability.db
             Dictionary<(int, string), int> products = LoadProductDict();
             Dictionary<(int, int), bool> prodTypeRel = LoadProductTypeRels();
 
-            // -------- Подготовка DataTable'ов --------
+            // буферы, куда накапливаем всё перед INSERT'ом
             var dtVulns = CreateVulnsTable();
             var dtVulnProds = CreateVulnProdsTable();
             var dtLinks = CreateLinksTable();
@@ -141,7 +124,8 @@ namespace Vullnerability.db
                 }
                 existingBdu.Add(bdu);
 
-                int tempVulnKey = -(bduCodesOrder.Count + 1); // отрицательные временные id
+                // временный отрицательный id, потом будем менять на реальный
+                int tempVulnKey = -(bduCodesOrder.Count + 1);
                 bduCodesOrder.Add(bdu);
 
                 bool skipProductsParse = componentBdus != null && componentBdus.Contains(bdu);
@@ -164,28 +148,21 @@ namespace Vullnerability.db
                      bduCodesOrder, newProductTypeRels);
         }
 
-        // ============================================================
-        // ИМПОРТ ЛИСТА «КОМПОНЕНТЫ»
-        // ============================================================
-        /// <summary>
-        /// Лист «Компоненты» содержит детализацию vulnerable software по одной строке на каждый компонент.
-        /// Один и тот же BDU-код встречается многократно — каждая строка добавляет ещё одну запись
-        /// в vulnerability_products (vendor + product + version + platform + product_type).
-        /// Уязвимость уже создана в листе «Уязвимости» (импортируется первым) — мы только дополняем M:N.
-        /// </summary>
+        // ---- Импорт листа «Компоненты» ----
+        // здесь одна строка = один компонент; берём оттуда вендора/продукт/версию/платформу
+        // и дописываем в vulnerability_products. Сама уязвимость уже в БД.
         private void ImportComponentsSheet(ExcelWorksheet ws)
         {
-            // Маппинг bdu_code → vulnerability.id (только из БД, и только тех, что в этом листе нужны).
+            // bdu_code → реальный id из БД
             var bduIdMap = LoadBduIdMap();
 
-            // Кэши справочников.
             Dictionary<string, int> vendors = LoadDict("SELECT id, name FROM vendors");
             Dictionary<string, int> productTypes = LoadDict("SELECT id, name FROM product_types");
             Dictionary<string, int> osPlatforms = LoadDict("SELECT id, name FROM os_platforms");
             Dictionary<(int, string), int> products = LoadProductDict();
             Dictionary<(int, int), bool> prodTypeRel = LoadProductTypeRels();
 
-            // Накапливаем M:N в DataTable, потом одним BulkCopy. Дедуп — по уникальной четвёрке.
+            // накапливаем результат в DataTable, дубли режем через HashSet по четвёрке ключей
             var dtVulnProds = CreateVulnProdsTable();
             var seenVulnProd = new HashSet<(int, int, string, int)>();
             var newProductTypeRels = new List<(int productId, int typeId)>();
@@ -195,7 +172,8 @@ namespace Vullnerability.db
             {
                 string bdu = GetCell(ws, row, "Идентификатор", takeLast: false);
                 if (string.IsNullOrWhiteSpace(bdu) || !bdu.StartsWith("BDU:")) continue;
-                if (!bduIdMap.TryGetValue(bdu, out int vulnId)) continue; // уязвимости в БД нет — пропускаем
+                // если уязвимости с таким кодом в БД нет — строку пропускаем
+                if (!bduIdMap.TryGetValue(bdu, out int vulnId)) continue;
 
                 string vendorVal = GetCell(ws, row, "Вендор ПО");
                 string productVal = GetCell(ws, row, "Название ПО", aliases: new[] { "Наименование ПО" });
@@ -215,7 +193,7 @@ namespace Vullnerability.db
                     ? GetOrAdd(osPlatforms, "os_platforms", "name", platformVal.Trim(), maxLen: 500)
                     : null;
 
-                // Тип ПО (часто одно значение, но может быть несколько через запятую — берём все).
+                // «Тип ПО» периодически идёт через запятую — разламываем и берём все
                 foreach (var t in SplitMulti(typeVal))
                 {
                     int? typeId = GetOrAdd(productTypes, "product_types", "name", t, maxLen: 255);
@@ -256,8 +234,6 @@ namespace Vullnerability.db
                         foreach (var rel in newProductTypeRels)
                         {
                             using (var cmd = new SQLiteCommand(
-                                // в SQLite у product_product_types PK = (product_id, product_type_id),
-                                // поэтому INSERT OR IGNORE корректно дедуплицирует пары.
                                 "INSERT OR IGNORE INTO product_product_types(product_id, product_type_id) VALUES(@p, @t);",
                                 conn, tx))
                             {
@@ -277,9 +253,7 @@ namespace Vullnerability.db
             }
         }
 
-        /// <summary>
-        /// Загружает маппинг bdu_code → vulnerability.id из БД.
-        /// </summary>
+        // bdu_code → id из таблицы vulnerabilities
         private Dictionary<string, int> LoadBduIdMap()
         {
             var map = new Dictionary<string, int>();
@@ -294,9 +268,7 @@ namespace Vullnerability.db
             return map;
         }
 
-        // ============================================================
-        // ОБРАБОТКА ОДНОЙ СТРОКИ
-        // ============================================================
+        // ---- Обработка одной строки листа «Уязвимости» ----
         private void ProcessRow(ExcelWorksheet ws, int row, int tempVulnKey, string bduCode,
             Dictionary<string, int> vendors,
             Dictionary<(int, string), int> products,
@@ -323,17 +295,13 @@ namespace Vullnerability.db
             var (v3vec, v3sc) = ParseCvss(GetCell(ws, row, "CVSS 3.0"));
             var (v4vec, v4sc) = ParseCvss(GetCell(ws, row, "CVSS 4.0"));
 
-            // ---- Уровень опасности ----
-            // В BDU поле часто содержит несколько фраз «… уровень опасности (CVSS … составляет N)»,
-            // идущих подряд иногда без переноса строки — нормализуем, чтобы каждая фраза была отдельной строкой.
-            // Храним полный текст в severity_text (NVARCHAR(MAX)). FK severity_level_id оставляем для фильтра в Form1
-            // и берём из первой фразы (она же определяет общий уровень).
+            // в BDU «Уровень опасности» бывает слитым из нескольких фраз по CVSS,
+            // разбиваем на строки и храним полным текстом, а severity_level_id берём из первой фразы
             string severityRaw = NormalizeSeverityText(GetCell(ws, row, "Уровень опасности уязвимости"));
             string sevName = ExtractSeverity(severityRaw);
             int? severityId = sevName != null && severities.TryGetValue(sevName, out var sid) ? (int?)sid : null;
 
-            // ---- Справочники с автодобавлением ----
-            // Часть полей в Excel может содержать несколько значений через запятую — берём первое.
+            // в этих полях Excel иногда несколько значений через запятую, поэтому берём первое
             int? vulnClassId = GetOrAdd(vulnClasses, "vuln_classes", "name", FirstOf(GetCell(ws, row, "Класс уязвимости")), maxLen: 255);
             int? statusId = GetOrAdd(statuses, "vuln_statuses", "name", FirstOf(GetCell(ws, row, "Статус уязвимости")), maxLen: 128);
             int? stateId = GetOrAdd(states, "vuln_states", "name", FirstOf(GetCell(ws, row, "Состояние уязвимости")), maxLen: 64);
@@ -342,14 +310,12 @@ namespace Vullnerability.db
             int? fixMethodId = GetOrAdd(fixMethods, "fix_methods", "name", FirstOf(GetCell(ws, row, "Способ устранения")), maxLen: 255);
             int? incidentId = GetOrAdd(incidents, "incident_relations", "name", FirstOf(GetCell(ws, row, "Связь с инцидентами ИБ")), maxLen: 64);
 
-            // ---- CWE: настоящий M:N. В BDU часто несколько CWE на одну уязвимость:
-            //   «Переполнение буфера в динамической памяти (CWE-122), Использование после освобождения (CWE-416)»
-            // Сохраняем «первую» CWE в vulnerabilities.cwe_id для совместимости с фильтром Form1
-            // и все коды — в junction-таблицу vulnerability_cwes.
+            // CWE бывает несколько в одной ячейке: «… (CWE-122), … (CWE-416)» — основные кладём
+            // в vulnerability_cwes, а «первый» в vulnerabilities.cwe_id (для старого фильтра Form1)
             string cweCodesRaw = GetCell(ws, row, "Тип ошибки CWE");
             string cweDescRaw = GetCell(ws, row, "Описание ошибки CWE");
             var cweCodeList = ExtractCweCodes(cweCodesRaw);
-            // Если в основной колонке кодов нет — пробуем вырвать их из колонки описания
+            // в «Тип ошибки» кодов нет — пытаемся из «Описания»
             if (cweCodeList.Count == 0) cweCodeList = ExtractCweCodes(cweDescRaw);
 
             int? cweId = null;
@@ -365,7 +331,7 @@ namespace Vullnerability.db
                 }
             }
 
-            // ---- vulnerabilities row ----
+            // сама запись уязвимости
             dtVulns.Rows.Add(
                 Trunc(bduCode, 32),
                 GetCell(ws, row, "Наименование уязвимости") ?? bduCode,
@@ -383,29 +349,17 @@ namespace Vullnerability.db
                 vulnClassId, severityId, statusId, stateId,
                 exploitId, exMethodId, fixMethodId, incidentId, cweId);
 
-            // ---- M:N: продукты ----
-            // Если BDU присутствует в листе «Компоненты» — там разбит точный список (vendor/product/version/platform/type)
-            // по одной строке на каждый компонент. В этом случае пропускаем парсинг запятых-списков из листа 1
-            // (он лишь сводный) — продукты добавятся отдельным проходом ImportComponentsSheet().
+            // продукты: если BDU есть в «Компонентах» — пропускаем, их добавит ImportComponentsSheet
             if (!skipProductsParse)
             {
                 string vendorVal = GetCell(ws, row, "Вендор ПО");
-                // В реальном vullist.xlsx колонка называется именно «Название ПО»
                 string productVal = GetCell(ws, row, "Название ПО", aliases: new[] { "Наименование ПО" });
                 string versionVal = GetCell(ws, row, "Версия ПО");
                 string platformVal = GetCell(ws, row, "Наименование ОС и тип аппаратной платформы");
                 string typeVal = GetCell(ws, row, "Тип ПО");
 
-                // ИДЕОЛОГИЯ:
-                //   В одной Excel-строке поля «Вендор ПО / Название ПО / Версия ПО / Платформа»
-                //   содержат списки одинаковой смысловой длины — это НЕ декартово произведение,
-                //   а «параллельные» индексные значения. Например, у BDU:2023-06559 это 20 вендоров,
-                //   76 продуктов, 171 версия и 80 платформ — описывают 171 affected combination, а
-                //   не 20×76×171×80 ≈ 21 млн строк (что приводило к OutOfMemoryException).
-                //
-                //   Берём N = max(|products|, |versions|, |platforms|) и проходим один раз,
-                //   циклически индексируя более короткие списки. Жёсткий cap MAX_ROWS_PER_VULN
-                //   на случай патологии в данных.
+                // в BDU эти поля — «параллельные» списки (i-й продукт идёт с i-й версией), а НЕ декартово произведение,
+                // иначе на больших записях выбивается OutOfMemory. Берём N = max(длин) и идём по кругу.
                 const int MAX_ROWS_PER_VULN = 2000;
 
                 var platformIdsList = SplitMulti(platformVal)
@@ -465,7 +419,7 @@ namespace Vullnerability.db
                 }
             }
 
-            // ---- 1:N: ссылки ----
+            // ссылки на источники (1:N)
             string refs = GetCell(ws, row, "Ссылки на источники") ?? GetCell(ws, row, "Ссылки");
             foreach (string url in SplitMultiLines(refs))
             {
@@ -473,7 +427,7 @@ namespace Vullnerability.db
                     dtLinks.Rows.Add(tempVulnKey, Trunc(url, 2000));
             }
 
-            // ---- 1:N: внешние идентификаторы (CVE, GHSA, MS, ...) ----
+            // внешние ID: CVE, GHSA, MS и т. п.
             string extRaw = GetCell(ws, row, "Идентификаторы других систем описаний уязвимости");
             foreach (var pair in ParseExternalIds(extRaw))
             {
@@ -482,7 +436,7 @@ namespace Vullnerability.db
                     (object)Trunc(pair.Item1, 32) ?? DBNull.Value);
             }
 
-            // Также пробуем отдельные колонки (на случай старого формата)
+            // в старом формате эти ID были в отдельных колонках — проверяем и их
             foreach (var src in new[] { "CVE", "OSVDB ID", "Bugtraq ID", "ISS X-Force ID", "Exploit Database ID" })
             {
                 string raw = GetCell(ws, row, src);
@@ -490,18 +444,17 @@ namespace Vullnerability.db
                     dtExtIds.Rows.Add(tempVulnKey, Trunc(code, 128), Trunc(src, 32));
             }
 
-            // ---- 1:N: меры по устранению ----
+            // меры по устранению (1:N)
             string mitigationRaw = GetCell(ws, row, "Возможные меры по устранению");
             foreach (string m in SplitMultiLines(mitigationRaw))
             {
-                // measure — NVARCHAR(MAX), усечка не нужна
                 dtMitigations.Rows.Add(tempVulnKey, m);
             }
 
-            // ---- 1:N: рекомендуемые обновления (последние две колонки) ----
+            // инфо о проведённых испытаниях (последние две колонки «Идентификатор» и «Наименование»)
             string testingId = GetCell(ws, row, "Идентификатор", takeLast: true);
             string testingName = GetCell(ws, row, "Наименование", takeLast: true);
-            // Игнорируем, если testingId совпадает с BDU кодом (значит, он один и нашёл первую колонку)
+            // если testingId — тот же BDU-код, значит «Наименование» было одно и попало в первую колонку
             if (!string.IsNullOrWhiteSpace(testingId) && testingId != bduCode)
             {
                 dtTesting.Rows.Add(tempVulnKey,
@@ -514,9 +467,7 @@ namespace Vullnerability.db
             }
         }
 
-        /// <summary>
-        /// Безопасная усечка строки до maxLen символов. null/пустая → null.
-        /// </summary>
+        // усекаем строку до maxLen, null/пустую возвращаем null
         private static string Trunc(string s, int maxLen)
         {
             if (s == null) return null;
@@ -525,9 +476,7 @@ namespace Vullnerability.db
             return s.Length > maxLen ? s.Substring(0, maxLen) : s;
         }
 
-        // ============================================================
-        // BULK LOAD
-        // ============================================================
+        // ---- Bulk INSERT всех буферов в одной транзакции ----
         private void BulkLoad(DataTable dtVulns, DataTable dtVulnProds, DataTable dtLinks,
                               DataTable dtExtIds, DataTable dtMitigations, DataTable dtTesting,
                               DataTable dtVulnCwes,
@@ -541,10 +490,10 @@ namespace Vullnerability.db
                 {
                     try
                     {
-                        // 1) Заливаем уязвимости
+                        // 1) сначала сами уязвимости
                         DoBulkCopy(conn, tx, "vulnerabilities", dtVulns);
 
-                        // 2) Поднимаем реальные id по bdu_code
+                        // 2) вытягиваем реальные id по bdu_code (батчами, иначе IN(…) слишком длинный)
                         var idMap = new Dictionary<string, int>();
                         const int batch = 1000;
                         for (int i = 0; i < bduOrder.Count; i += batch)
@@ -562,7 +511,7 @@ namespace Vullnerability.db
                             }
                         }
 
-                        // 3) Меняем временные ключи на реальные
+                        // 3) в буферных DataTable меняем временные ключи на реальные id
                         ReplaceTempKey(dtVulnProds, "vulnerability_id", bduOrder, idMap);
                         ReplaceTempKey(dtLinks, "vulnerability_id", bduOrder, idMap);
                         ReplaceTempKey(dtExtIds, "vulnerability_id", bduOrder, idMap);
@@ -570,7 +519,7 @@ namespace Vullnerability.db
                         ReplaceTempKey(dtTesting, "vulnerability_id", bduOrder, idMap);
                         ReplaceTempKey(dtVulnCwes, "vulnerability_id", bduOrder, idMap);
 
-                        // 4) Заливаем дочерние таблицы
+                        // 4) теперь льём дочерние таблицы
                         DoBulkCopy(conn, tx, "vulnerability_products", dtVulnProds);
                         DoBulkCopy(conn, tx, "vulnerability_source_links", dtLinks);
                         DoBulkCopy(conn, tx, "vulnerability_external_ids", dtExtIds);
@@ -578,7 +527,8 @@ namespace Vullnerability.db
                         DoBulkCopy(conn, tx, "vulnerability_testing_updates", dtTesting);
                         DoBulkCopy(conn, tx, "vulnerability_cwes", dtVulnCwes);
 
-                        // 5) M:N product_product_types — отдельным INSERT'ом, чтобы пропустить уже существующие пары
+                        // 5) связь product ↔ product_type — INSERT OR IGNORE, чтобы существующие пары не дублировать
+                        // PK = (product_id, product_type_id), дубли игнорируем через INSERT OR IGNORE
                         if (newProductTypeRels.Count > 0)
                         {
                             foreach (var rel in newProductTypeRels)
@@ -620,11 +570,7 @@ namespace Vullnerability.db
             }
         }
 
-        /// <summary>
-        /// SQLite-аналог SqlBulkCopy: один prepared statement INSERT INTO {table}(cols...) VALUES(@p0, @p1, ...),
-        /// один раз скомпилирован, переиспользуется для всех строк в DataTable.
-        /// Вызов идёт в уже открытой транзакции — поэтому fsync на диск делается один раз на коммите.
-        /// </summary>
+        // аналог SqlBulkCopy для SQLite: один подготовленный INSERT и все строки в транзакции
         private static void DoBulkCopy(SQLiteConnection conn, SQLiteTransaction tx, string table, DataTable dt)
         {
             if (dt.Rows.Count == 0) return;
@@ -654,11 +600,7 @@ namespace Vullnerability.db
             }
         }
 
-        /// <summary>
-        /// Маппинг CLR-типа в DataColumn → DbType для параметра SQLiteCommand.
-        /// SQLite типизация очень лояльная (TYPE AFFINITY), но корректные DbType'ы помогают
-        /// провайдеру правильно сериализовать DateTime/decimal/etc.
-        /// </summary>
+        // CLR-тип в DbType для параметров SQLite (важно для DateTime/decimal)
         private static DbType MapDbType(Type t)
         {
             if (t == typeof(int) || t == typeof(int?)) return DbType.Int32;
@@ -673,9 +615,7 @@ namespace Vullnerability.db
             return DbType.Object;
         }
 
-        // ============================================================
-        // СОЗДАНИЕ DATATABLE
-        // ============================================================
+        // ---- Буферные DataTable, один к одному под колонки в БД ----
         private static DataTable CreateVulnsTable()
         {
             var dt = new DataTable("vulnerabilities");
@@ -766,9 +706,8 @@ namespace Vullnerability.db
             return dt;
         }
 
-        // ============================================================
-        // ПАРСИНГ
-        // ============================================================
+        // ---- Парсеры ----
+        // выдёргиваем из строки CVSS-вектор и число (балл)
         private static (string vector, decimal? score) ParseCvss(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return (null, null);
@@ -777,7 +716,6 @@ namespace Vullnerability.db
             if (match.Success && decimal.TryParse(match.Value.Replace(',', '.'),
                 NumberStyles.Any, CultureInfo.InvariantCulture, out var s))
                 score = s;
-            // Реальная усечка вектора делается Trunc'ом при вставке в DataTable.
             return (raw.Trim(), score);
         }
 
@@ -793,35 +731,24 @@ namespace Vullnerability.db
             return null;
         }
 
-        /// <summary>
-        /// Вставляет переносы строк между склеенными фразами вида
-        /// «… уровень опасности (… составляет N)Высокий уровень опасности (… составляет M)».
-        /// Также нормализует CRLF/LF и схлопывает дубль-переносы.
-        /// </summary>
+        // в BDU «Уровень опасности» бывает слитым вроде «… составляет N)Высокий уровень…» —
+        // перед каждым «<уровень> уровень опасности» вставляем перенос строки
         private static string NormalizeSeverityText(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return raw;
             string s = raw.Replace("\r\n", "\n").Replace("\r", "\n").Trim();
 
-            // Перед каждым «<уровень> уровень опасности» (кроме самого начала строки) ставим перевод строки.
-            // Это покрывает оба варианта — и склейку через «)Высокий…», и через «) Высокий…».
             s = Regex.Replace(
                 s,
                 @"(?<!^)\s*(?=(?:Критический|Высокий|Средний|Низкий|Информационный|Базовый)\s+уровень\s+опасности)",
                 "\n");
 
-            // Схлопываем подряд идущие переносы.
+            // два+ переноса подряд схлопываем в один
             s = Regex.Replace(s, @"\n{2,}", "\n");
             return s.Trim();
         }
 
-        /// <summary>
-        /// Извлекает все коды CWE-NNN[NNN] из произвольной строки. Поддерживает форматы:
-        ///   "CWE-122"
-        ///   "CWE-122, CWE-416"
-        ///   "Переполнение буфера в динамической памяти (CWE-122), Использование после освобождения (CWE-416)"
-        /// Возвращает список уникальных кодов в порядке появления.
-        /// </summary>
+        // вытаскиваем все CWE-коды из строки, окружение любое — важен только сам «CWE-NNN»
         private static List<string> ExtractCweCodes(string raw)
         {
             var result = new List<string>();
@@ -857,12 +784,7 @@ namespace Vullnerability.db
                       .Select(s => s.Trim()).Where(s => s.Length > 0);
         }
 
-        /// <summary>
-        /// Парсит строку вида:
-        ///   "CVE: CVE-2024-1234, CVE-2024-5678
-        ///    GHSA: GHSA-aaaa-bbbb-cccc"
-        /// в пары (source, externalId). Если префикса нет — source=null.
-        /// </summary>
+        // разбираем блоки вида «CVE: CVE-2024-1234, CVE-2024-5678\nGHSA: …» → (источник, внешний_id)
         private static IEnumerable<(string source, string externalId)> ParseExternalIds(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) yield break;
@@ -891,9 +813,7 @@ namespace Vullnerability.db
             }
         }
 
-        // ============================================================
-        // КЭШИ И GET-OR-ADD
-        // ============================================================
+        // ---- Кэши справочников и GET-OR-ADD ----
         private HashSet<string> LoadHashSet(string sql)
         {
             var set = new HashSet<string>();
@@ -929,7 +849,7 @@ namespace Vullnerability.db
         {
             var dict = new Dictionary<(int, string), int>();
             using (var conn = new SQLiteConnection(_connStr))
-            // ISNULL(...) — SQL Server-изм, в SQLite эквивалент IFNULL(...) (или COALESCE(...)).
+            // в SQLite вместо ISNULL пишется IFNULL/COALESCE
             using (var cmd = new SQLiteCommand("SELECT id, IFNULL(vendor_id,0), name FROM products", conn))
             {
                 conn.Open();
@@ -964,7 +884,7 @@ namespace Vullnerability.db
             using (var conn = new SQLiteConnection(_connStr))
             {
                 conn.Open();
-                // INSERT OR IGNORE опирается на UNIQUE-констрейнт в справочнике.
+                // INSERT OR IGNORE опирается на UNIQUE по колонке-имени
                 using (var cmd = new SQLiteCommand(
                     $"INSERT OR IGNORE INTO {table}({col}) VALUES(@v);", conn))
                 {
@@ -982,10 +902,7 @@ namespace Vullnerability.db
             return id;
         }
 
-        /// <summary>
-        /// Если в ячейке несколько значений через запятую/точку с запятой (часто бывает у "Класс уязвимости",
-        /// "Способ эксплуатации", "Способ устранения") — берём первое непустое.
-        /// </summary>
+        // берём первое непустое из списка через ;,\n\r
         private static string FirstOf(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -1004,9 +921,8 @@ namespace Vullnerability.db
             using (var conn = new SQLiteConnection(_connStr))
             {
                 conn.Open();
-                // Среди продуктов бывает vendor_id IS NULL. UNIQUE(vendor_id, name) в SQLite считает
-                // NULL != NULL, то есть INSERT OR IGNORE не дедуплицирует дубли с NULL-вендором.
-                // Явно проверяем через NOT EXISTS + IFNULL(.,0)=IFNULL(.,0).
+                // SQLite в UNIQUE(vendor_id, name) считает NULL!=NULL, поэтому дубли с NULL-вендором
+                // ловим вручную через NOT EXISTS + IFNULL(.,0)=IFNULL(.,0)
                 using (var cmd = new SQLiteCommand(
                     @"INSERT INTO products(name, vendor_id)
                       SELECT @n, @v
@@ -1040,8 +956,7 @@ namespace Vullnerability.db
             using (var conn = new SQLiteConnection(_connStr))
             {
                 conn.Open();
-                // SQLite UPSERT (3.24+). ON CONFLICT(code) срабатывает по UNIQUE-индексу cwes.code.
-                // excluded.description = предложенное в INSERT'е новое значение.
+                // SQLite-UPSERT по UNIQUE-индексу cwes.code, excluded.description — новое значение из INSERT'а
                 using (var cmd = new SQLiteCommand(
                     @"INSERT INTO cwes(code, description) VALUES(@c, @d)
                       ON CONFLICT(code) DO UPDATE
@@ -1062,16 +977,11 @@ namespace Vullnerability.db
             return id;
         }
 
-        // ============================================================
-        // EXCEL ПОИСК ЯЧЕЕК
-        // ============================================================
+        // ---- Поиск ячеек Excel по имени колонки ----
         private readonly Dictionary<string, int[]> _columnCache = new Dictionary<string, int[]>();
 
-        /// <summary>
-        /// Возвращает значение ячейки. Если takeLast=true — берёт последнюю колонку с таким именем
-        /// (нужно для секции "Возможные меры по устранению с помощью результатов тестирования
-        /// обновлений ПО", где "Идентификатор" и "Наименование" встречаются повторно).
-        /// </summary>
+        // takeLast=true нужен для «Идентификатор»/«Наименование» в блоке «Обновления ПО»,
+        // где эти же имена колонок идут вторыми повторными в правой части листа
         private string GetCell(ExcelWorksheet ws, int row, string colName,
                                bool takeLast = false, string[] aliases = null)
         {
@@ -1088,10 +998,7 @@ namespace Vullnerability.db
             return ws.Cells[row, col].Value?.ToString()?.Trim();
         }
 
-        /// <summary>
-        /// Сравнение имён колонок без регистра и с нормализацией пробельных символов
-        /// (\r, \n, \t и подряд пробелы в Excel-хедерах — частый случай).
-        /// </summary>
+        // нормализуем имя хедера: схлопываем любые пробельные в один, регистр опускаем
         private static string NormHeader(string s)
         {
             if (s == null) return "";
@@ -1107,7 +1014,6 @@ namespace Vullnerability.db
                 }
                 else { sb.Append(char.ToLowerInvariant(c)); prevSpace = false; }
             }
-            // Отрезаем хвостовой пробел, если есть
             if (sb.Length > 0 && sb[sb.Length - 1] == ' ') sb.Length--;
             return sb.ToString();
         }

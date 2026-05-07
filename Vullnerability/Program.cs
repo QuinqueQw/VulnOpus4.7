@@ -9,14 +9,12 @@ namespace Vullnerability
 {
     internal static class Program
     {
-        /// <summary>
-        /// Главная точка входа для приложения.
-        /// </summary>
         [STAThread]
         static void Main()
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // создаём БД при первом запуске, чтобы EF потом не упал
             SqliteBootstrap.EnsureDatabase();
             Application.Run(new Form1());
         }
