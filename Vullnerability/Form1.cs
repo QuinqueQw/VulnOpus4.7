@@ -389,7 +389,7 @@ namespace Vullnerability
 
         // от самого опасного к самому безопасному
         private static readonly string[] SeverityOrder =
-            { "крит", "высок", "сред", "низк", "информ" };
+            { "крит", "высок", "сред", "низк" };
 
         // в severity_text бывает несколько уровней (по CVSS 2/3/4) — берём самый безопасный
         private static string PickLowestSeverity(string severityText, string fallback)
@@ -519,7 +519,6 @@ namespace Vullnerability
                 else if (sev.Contains("высок")) sevColor = Color.FromArgb(220, 120, 40);
                 else if (sev.Contains("сред")) sevColor = Color.FromArgb(200, 180, 50);
                 else if (sev.Contains("низк")) sevColor = Color.FromArgb(80, 160, 80);
-                else if (sev.Contains("информ")) sevColor = Color.FromArgb(80, 130, 200);
                 else sevColor = Color.FromArgb(80, 80, 80);
                 row.Cells[0].Style.BackColor = sevColor;
                 row.Cells[0].Style.SelectionBackColor = sevColor;
@@ -676,8 +675,7 @@ namespace Vullnerability
 
                 case SortField.Severity:
                 default:
-                    // сначала по severity_level_id (1=Критический … 5=Информационный, NULL в конец),
-                    // потом по максимуму из CVSS 2/3/4
+                 
                     if (_sortDescending)
                         return source
                             .OrderBy(v => v.SeverityLevelId ?? int.MaxValue)

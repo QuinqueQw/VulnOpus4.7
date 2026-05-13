@@ -23,7 +23,7 @@ namespace Vullnerability
 
             // берём максимальную из CVSS-оценок и красим карточку по ней
             decimal? score = _vuln.Cvss4_0_Score ?? _vuln.Cvss3_0_Score ?? _vuln.Cvss2_0_Score;
-            UpdateSeverityColor(score);
+           
 
             // клик по любому контролу внутри = клик по карточке
             this.Click += VullCard_Click;
@@ -31,18 +31,7 @@ namespace Vullnerability
                 c.Click += VullCard_Click;
         }
 
-        private void UpdateSeverityColor(decimal? score)
-        {
-            if (!score.HasValue) return;
-
-            Color backColor;
-            if (score >= 9.0m) backColor = Color.FromArgb(255, 100, 100);
-            else if (score >= 7.0m) backColor = Color.FromArgb(255, 200, 100);
-            else if (score >= 4.0m) backColor = Color.FromArgb(255, 255, 150);
-            else backColor = Color.White;
-
-            this.BackColor = backColor;
-        }
+   
 
         private void VullCard_Click(object sender, EventArgs e)
         {

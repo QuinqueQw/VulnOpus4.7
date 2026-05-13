@@ -13,11 +13,11 @@
 
         private void InitializeComponent()
         {
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle6 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle10 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle7 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle8 = new System.Windows.Forms.DataGridViewCellStyle();
-            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle9 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle1 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle5 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle2 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle3 = new System.Windows.Forms.DataGridViewCellStyle();
+            System.Windows.Forms.DataGridViewCellStyle dataGridViewCellStyle4 = new System.Windows.Forms.DataGridViewCellStyle();
             this.panelFilters = new System.Windows.Forms.Panel();
             this.chkUseDate = new System.Windows.Forms.CheckBox();
             this.btnApplyFilter = new System.Windows.Forms.Button();
@@ -596,8 +596,8 @@
             this.dgvVulns.AllowUserToAddRows = false;
             this.dgvVulns.AllowUserToDeleteRows = false;
             this.dgvVulns.AllowUserToResizeRows = false;
-            dataGridViewCellStyle6.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(26)))), ((int)(((byte)(26)))), ((int)(((byte)(26)))));
-            this.dgvVulns.AlternatingRowsDefaultCellStyle = dataGridViewCellStyle6;
+            dataGridViewCellStyle1.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(26)))), ((int)(((byte)(26)))), ((int)(((byte)(26)))));
+            this.dgvVulns.AlternatingRowsDefaultCellStyle = dataGridViewCellStyle1;
             this.dgvVulns.AutoSizeRowsMode = System.Windows.Forms.DataGridViewAutoSizeRowsMode.AllCells;
             this.dgvVulns.BackgroundColor = System.Drawing.Color.FromArgb(((int)(((byte)(20)))), ((int)(((byte)(20)))), ((int)(((byte)(20)))));
             this.dgvVulns.BorderStyle = System.Windows.Forms.BorderStyle.None;
@@ -608,15 +608,15 @@
             this.colBduId,
             this.colDesc,
             this.colDate});
-            dataGridViewCellStyle10.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle10.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(22)))), ((int)(((byte)(22)))), ((int)(((byte)(22)))));
-            dataGridViewCellStyle10.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
-            dataGridViewCellStyle10.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(210)))), ((int)(((byte)(210)))), ((int)(((byte)(210)))));
-            dataGridViewCellStyle10.Padding = new System.Windows.Forms.Padding(4, 6, 4, 6);
-            dataGridViewCellStyle10.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(70)))), ((int)(((byte)(40)))));
-            dataGridViewCellStyle10.SelectionForeColor = System.Drawing.Color.White;
-            dataGridViewCellStyle10.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
-            this.dgvVulns.DefaultCellStyle = dataGridViewCellStyle10;
+            dataGridViewCellStyle5.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle5.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(22)))), ((int)(((byte)(22)))), ((int)(((byte)(22)))));
+            dataGridViewCellStyle5.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
+            dataGridViewCellStyle5.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(210)))), ((int)(((byte)(210)))), ((int)(((byte)(210)))));
+            dataGridViewCellStyle5.Padding = new System.Windows.Forms.Padding(4, 6, 4, 6);
+            dataGridViewCellStyle5.SelectionBackColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(70)))), ((int)(((byte)(40)))));
+            dataGridViewCellStyle5.SelectionForeColor = System.Drawing.Color.White;
+            dataGridViewCellStyle5.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.dgvVulns.DefaultCellStyle = dataGridViewCellStyle5;
             this.dgvVulns.Dock = System.Windows.Forms.DockStyle.Fill;
             this.dgvVulns.Font = new System.Drawing.Font("Segoe UI", 8.5F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
             this.dgvVulns.GridColor = System.Drawing.Color.FromArgb(((int)(((byte)(40)))), ((int)(((byte)(40)))), ((int)(((byte)(40)))));
@@ -642,11 +642,11 @@
             // 
             // colBduId
             // 
-            dataGridViewCellStyle7.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle7.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
-            dataGridViewCellStyle7.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(80)))), ((int)(((byte)(180)))), ((int)(((byte)(100)))));
-            dataGridViewCellStyle7.Padding = new System.Windows.Forms.Padding(8, 6, 4, 6);
-            this.colBduId.DefaultCellStyle = dataGridViewCellStyle7;
+            dataGridViewCellStyle2.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle2.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(204)));
+            dataGridViewCellStyle2.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(80)))), ((int)(((byte)(180)))), ((int)(((byte)(100)))));
+            dataGridViewCellStyle2.Padding = new System.Windows.Forms.Padding(8, 6, 4, 6);
+            this.colBduId.DefaultCellStyle = dataGridViewCellStyle2;
             this.colBduId.HeaderText = "Идентификатор";
             this.colBduId.MinimumWidth = 100;
             this.colBduId.Name = "colBduId";
@@ -656,9 +656,9 @@
             // colDesc
             // 
             this.colDesc.AutoSizeMode = System.Windows.Forms.DataGridViewAutoSizeColumnMode.Fill;
-            dataGridViewCellStyle8.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
-            dataGridViewCellStyle8.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
-            this.colDesc.DefaultCellStyle = dataGridViewCellStyle8;
+            dataGridViewCellStyle3.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleLeft;
+            dataGridViewCellStyle3.WrapMode = System.Windows.Forms.DataGridViewTriState.True;
+            this.colDesc.DefaultCellStyle = dataGridViewCellStyle3;
             this.colDesc.HeaderText = "Наименование / описание уязвимости";
             this.colDesc.MinimumWidth = 300;
             this.colDesc.Name = "colDesc";
@@ -666,9 +666,9 @@
             // 
             // colDate
             // 
-            dataGridViewCellStyle9.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
-            dataGridViewCellStyle9.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
-            this.colDate.DefaultCellStyle = dataGridViewCellStyle9;
+            dataGridViewCellStyle4.Alignment = System.Windows.Forms.DataGridViewContentAlignment.MiddleCenter;
+            dataGridViewCellStyle4.ForeColor = System.Drawing.Color.FromArgb(((int)(((byte)(150)))), ((int)(((byte)(150)))), ((int)(((byte)(150)))));
+            this.colDate.DefaultCellStyle = dataGridViewCellStyle4;
             this.colDate.HeaderText = "Дата";
             this.colDate.MinimumWidth = 70;
             this.colDate.Name = "colDate";
@@ -894,7 +894,7 @@
             this.MinimumSize = new System.Drawing.Size(1918, 1030);
             this.Name = "Form1";
             this.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
-            this.Text = "Справочник уязвимостей БДУ ФСТЭК";
+            this.Text = "Справочник уязвимостей";
             this.panelFilters.ResumeLayout(false);
             this.panelFilters.PerformLayout();
             this.panelCenter.ResumeLayout(false);
